@@ -1,0 +1,64 @@
+PROPRIETARY SOFTWARE LICENCE
+
+Copyright (c) 2026 hSenid Mobile Solutions (Pvt) Ltd. All rights reserved.
+
+This repository, and every file in it — documentation, reference material, the
+API catalogue, the command-line tool, the code templates, the scripts and the
+assets — is the sole and exclusive property of hSenid Mobile Solutions (Pvt)
+Ltd ("hSenid Mobile"). It is made available for reference only.
+
+1. GRANT
+
+   hSenid Mobile grants you a personal, non-exclusive, non-transferable,
+   revocable licence to read this repository and to use it as reference
+   material while building an integration against the bdapps platform,
+   including the copying strictly necessary to do so — cloning this repository,
+   installing it as an agent plugin or skill, and caching it locally.
+
+   Code you write for your own application by following this reference material
+   is yours. This licence does not claim it.
+
+2. RESTRICTIONS
+
+   Except as expressly permitted in section 1, you may not:
+
+   (a) copy, reproduce or mirror this repository or any substantial part of it;
+   (b) modify, adapt, translate or create derivative works from it;
+   (c) distribute, publish, transmit, lend or make it available to any third
+       party;
+   (d) sublicense, rent, lease, sell or otherwise commercially exploit it;
+   (e) remove, obscure or alter any copyright, trademark or attribution notice
+       it carries.
+
+3. NO CONTRIBUTIONS
+
+   External pull requests and forks are not accepted. Corrections and
+   suggestions are welcome as issues.
+
+4. TRADEMARKS
+
+   "bdapps" and "Robi" are trademarks of their respective owners. Nothing in
+   this licence grants any right to use them.
+
+5. NO WARRANTY
+
+   THIS REPOSITORY IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. THE API CONTRACTS
+   DOCUMENTED HERE MAY CHANGE WITHOUT NOTICE; THE PUBLISHED bdapps
+   DOCUMENTATION IS AUTHORITATIVE.
+
+6. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL HSENID MOBILE BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THIS REPOSITORY OR ITS USE.
+
+7. TERMINATION
+
+   This licence terminates automatically if you breach any of its terms. On
+   termination you must stop using the repository and delete every copy in your
+   possession.
+
+For any use beyond the grant in section 1, contact hSenid Mobile Solutions
+(Pvt) Ltd at https://www.hsenidmobile.com.

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img"
+     aria-label="bdapps Skill for Agents — SMS, USSD, Subscription, OTP, CaaS and bdappsAI integrations your AI agent gets right the first time. Built by hSenid Mobile Solutions for bdapps.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="60%" stop-color="#FDF6FA"/>
+      <stop offset="100%" stop-color="#FCEEF3"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <g stroke="#E11D74" stroke-width="1" opacity="0.06">
+    <path d="M0 160h1280M0 320h1280M0 480h1280M320 0v640M640 0v640M960 0v640"/>
+  </g>
+
+  <rect x="0" y="0" width="1280" height="8" fill="#E11D74"/>
+
+  <image x="96" y="120" width="352" height="101" href="data:image/png;base64,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"/>
+
+  <text x="98" y="310" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="58" font-weight="700" fill="#1F2937">
+    Skill for Agents
+  </text>
+  <text x="100" y="362" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="26" fill="#E11D74">
+    SMS &#183; USSD &#183; Subscription &#183; OTP &#183; CaaS &#183; bdappsAI
+  </text>
+  <text x="100" y="408" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="23" fill="#6B7280">
+    Telco integrations your AI agent gets right the first time.
+  </text>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19">
+    <rect x="100" y="446" width="228" height="44" rx="22" fill="#E11D74" opacity="0.10"/>
+    <text x="124" y="474" fill="#9D174D">12 endpoints</text>
+
+    <rect x="344" y="446" width="220" height="44" rx="22" fill="#E11D74" opacity="0.10"/>
+    <text x="368" y="474" fill="#9D174D">4 callbacks</text>
+
+    <rect x="580" y="446" width="256" height="44" rx="22" fill="#E11D74" opacity="0.10"/>
+    <text x="604" y="474" fill="#9D174D">80+ status codes</text>
+  </g>
+
+  <text x="100" y="556" font-family="ui-sans-serif, system-ui, Segoe UI, sans-serif" font-size="20" fill="#9CA3AF">
+    by hSenid Mobile Solutions for bdapps &#183; Robi &amp; Airtel &#183; Bangladesh
+  </text>
+</svg>

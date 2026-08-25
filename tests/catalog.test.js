@@ -1,0 +1,796 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { join } from "node:path";
+import {
+  allEntries,
+  buildPayload,
+  catalog,
+  diagnose,
+  findEntry,
+  isBdappsAi,
+  lookupBdappsAiError,
+  lookupStatusCode,
+  bdappsaiServices,
+  repoRoot,
+  search,
+  toCurl,
+  urlFor,
+  validatePayload,
+} from "../tools/catalog.mjs";
+
+/* ── Catalog integrity ───────────────────────────────────────────────────── */
+
+test("catalog declares the Bangladeshi operators and no others", () => {
+  const names = catalog.operators.map((o) => o.name).sort();
+  assert.deepEqual(names, ["Airtel", "Robi"]);
+  assert.equal(catalog.platform.market, "Bangladesh");
+});
+
+test("every service has a unique id, path, parameters and a sample", () => {
+  const ids = new Set();
+  for (const s of catalog.services) {
+    assert.ok(s.id, "service missing id");
+    assert.ok(!ids.has(s.id), `duplicate service id ${s.id}`);
+    ids.add(s.id);
+    assert.ok(s.path, `${s.id} missing path`);
+    assert.equal(s.method, "POST", `${s.id} should be POST`);
+    assert.ok(s.parameters?.length, `${s.id} has no parameters`);
+    assert.ok(s.sampleRequest, `${s.id} has no sampleRequest`);
+    assert.ok(s.summary, `${s.id} has no summary`);
+  }
+});
+
+/**
+ * catalog.services is the telco half only. bdappsAI carries no body credentials
+ * at all — its key is a header — which is exactly why it lives in its own
+ * catalog branch rather than being appended here.
+ */
+test("every outbound telco service requires applicationId and password", () => {
+  for (const s of catalog.services) {
+    const names = s.parameters.map((p) => p.name);
+    assert.ok(names.includes("applicationId"), `${s.id} missing applicationId`);
+    assert.ok(names.includes("password"), `${s.id} missing password`);
+    for (const field of ["applicationId", "password"]) {
+      const p = s.parameters.find((x) => x.name === field);
+      assert.equal(p.required, true, `${s.id}.${field} should be required`);
+    }
+  }
+});
+
+test("every callback declares a dedupe key and a route", () => {
+  assert.ok(catalog.callbacks.length >= 4, "expected at least four callbacks");
+  for (const cb of catalog.callbacks) {
+    assert.ok(cb.dedupeKey, `${cb.id} missing dedupeKey — callbacks must be idempotent`);
+    assert.ok(cb.suggestedPath?.startsWith("/"), `${cb.id} suggestedPath must be a route`);
+  }
+});
+
+/**
+ * Every callback must be implementable from the catalog alone: fields, a sample
+ * payload, and a dedupe key. A handler cannot be generated from a shrug.
+ */
+test("every callback carries fields and a sample payload", () => {
+  for (const cb of catalog.callbacks) {
+    assert.ok(cb.fields?.length, `${cb.id} has no fields`);
+    assert.ok(cb.samplePayload, `${cb.id} has no samplePayload`);
+    for (const field of cb.fields) {
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(cb.samplePayload, field.name) || !field.required,
+        `${cb.id}.${field.name} is required but missing from samplePayload`
+      );
+    }
+  }
+});
+
+test("every status code referenced by a service exists in the code table", () => {
+  for (const e of allEntries()) {
+    for (const code of e.statusCodes || []) {
+      assert.ok(catalog.statusCodes[code], `${e.id} references unknown status code ${code}`);
+    }
+  }
+});
+
+test("every status code has a known handling class", () => {
+  const classes = new Set(Object.keys(catalog.statusCodeClasses));
+  for (const [code, meta] of Object.entries(catalog.statusCodes)) {
+    assert.ok(classes.has(meta.class), `${code} has unknown class "${meta.class}"`);
+    assert.ok(meta.description, `${code} has no description`);
+  }
+});
+
+test("every parameter is fully specified", () => {
+  for (const e of allEntries()) {
+    for (const p of e.parameters || e.fields || []) {
+      assert.ok(p.name, `${e.id} has an unnamed parameter`);
+      assert.ok(p.type, `${e.id}.${p.name} has no type`);
+      assert.equal(typeof p.required, "boolean", `${e.id}.${p.name} has no required flag`);
+      assert.ok(p.description, `${e.id}.${p.name} has no description`);
+    }
+  }
+});
+
+test("every reference path in the catalog points at a real file", () => {
+  const refs = new Set();
+  for (const e of allEntries()) if (e.reference) refs.add(e.reference);
+  for (const p of catalog.practices) refs.add(p.reference);
+  for (const ref of refs) {
+    assert.ok(existsSync(join(repoRoot, ref)), `missing referenced file: ${ref}`);
+  }
+});
+
+test("the benign codes are marked benign for the right operations", () => {
+  assert.deepEqual(lookupStatusCode("E1351").benignFor, ["subscription-register"]);
+  assert.deepEqual(lookupStatusCode("E1356").benignFor, ["subscription-unregister"]);
+  assert.deepEqual(lookupStatusCode("E1379").benignFor, ["caas-direct-debit"]);
+});
+
+test("E1303 and E1313 are configuration-class and never retryable", () => {
+  for (const code of ["E1303", "E1313", "E1309"]) {
+    const info = lookupStatusCode(code);
+    assert.equal(info.class, "configuration", `${code} should be configuration-class`);
+    assert.equal(info.retry, false, `${code} must never be retried`);
+  }
+});
+
+test("the charging service is flagged as moving money and has an idempotency key", () => {
+  const debit = findEntry("caas-direct-debit");
+  assert.equal(debit.movesMoney, true);
+  assert.equal(debit.idempotencyKey, "externalTrxId");
+});
+
+test("no real credential-shaped string appears in the catalog", () => {
+  const raw = readFileSync(join(repoRoot, "catalog", "bdapps-api.json"), "utf8");
+  const hexSecret = /"password"\s*:\s*"[0-9a-f]{16,}"/i;
+  assert.equal(hexSecret.test(raw), false, "catalog contains a credential-shaped password value");
+});
+
+/* ── bdappsAI ──────────────────────────────────────────────────────────────── */
+
+/**
+ * bdappsAI shares the brand and the host and nothing else: header credentials,
+ * real HTTP status codes, no subscriber, no callbacks. Every test here guards a
+ * place where a telco assumption leaking into the AI path would produce a
+ * request that fails quietly or, worse, sends the wrong product's secret.
+ */
+test("the bdappsAI branch declares a header credential, not body credentials", () => {
+  const auth = catalog.bdappsai.auth;
+  assert.equal(auth.type, "header");
+  assert.equal(auth.header, "Authorization");
+  assert.equal(auth.envVar, "BDAPPSAI_API_KEY");
+  assert.match(auth.format, /^app_/);
+  // The one mistake the published docs single out.
+  assert.match(auth.note, /not an OAuth bearer token/i);
+});
+
+test("every bdappsAI service is fully specified and tagged as its own family", () => {
+  const services = bdappsaiServices();
+  assert.ok(services.length >= 2, "expected at least chat and image endpoints");
+  const ids = new Set();
+  for (const s of services) {
+    assert.ok(!ids.has(s.id), `duplicate bdappsAI service id ${s.id}`);
+    ids.add(s.id);
+    assert.ok(isBdappsAi(s), `${s.id} is not tagged family: "bdappsai"`);
+    assert.equal(s.method, "POST");
+    assert.ok(s.absoluteUrl?.startsWith(catalog.bdappsai.baseUrl), `${s.id} is not on the bdappsAI host`);
+    assert.ok(s.envVar?.startsWith("BDAPPSAI_"), `${s.id} must not share the BDAPPS_ prefix`);
+    assert.ok(s.parameters?.length, `${s.id} has no parameters`);
+    assert.ok(s.sampleRequest && s.sampleResponse, `${s.id} has no sample`);
+    assert.ok(s.errorCodes?.length, `${s.id} documents no failures`);
+
+    const names = s.parameters.map((p) => p.name);
+    for (const forbidden of ["applicationId", "password"]) {
+      assert.ok(!names.includes(forbidden), `${s.id} must not take ${forbidden} in the body`);
+    }
+  }
+});
+
+test("every bdappsAI error code resolves with a known handling class", () => {
+  const classes = new Set(Object.keys(catalog.statusCodeClasses));
+  for (const s of bdappsaiServices()) {
+    for (const code of s.errorCodes) {
+      const info = lookupBdappsAiError(code);
+      assert.equal(info.known, true, `${s.id} references unknown bdappsAI error ${code}`);
+      assert.ok(classes.has(info.class), `${code} has unknown class "${info.class}"`);
+      assert.ok(info.http >= 400, `${code} has no HTTP status`);
+      assert.ok(info.action, `${code} has no fix`);
+    }
+  }
+});
+
+test("the two 429s are classified differently, because only one clears on its own", () => {
+  assert.equal(lookupBdappsAiError("RATE_LIMIT_EXCEEDED").retry, true);
+  assert.equal(lookupBdappsAiError("TOKEN_QUOTA_EXCEEDED").retry, false);
+  assert.equal(lookupBdappsAiError("TOKEN_QUOTA_EXCEEDED").class, "configuration");
+});
+
+test("a bdappsAI code and a telco code never resolve against each other's table", () => {
+  assert.equal(lookupBdappsAiError("E1303").known, false);
+  assert.equal(lookupStatusCode("TOKEN_QUOTA_EXCEEDED").known, false);
+});
+
+test("bdappsAI services resolve by id and by intent", () => {
+  assert.equal(findEntry("bdappsai-chat-completions").id, "bdappsai-chat-completions");
+  assert.equal(findEntry("chat").id, "bdappsai-chat-completions");
+  assert.ok(search("image generation").some((r) => r.id === "bdappsai-image-generation"));
+  assert.ok(search("claude").some((r) => r.id === "claude-sonnet-4-6"));
+});
+
+test("a bdappsAI request carries no body credential and an Authorization header", () => {
+  const chat = findEntry("bdappsai-chat-completions");
+  const payload = buildPayload(chat, {});
+  assert.equal(payload.applicationId, undefined, "the telco appId leaked into a bdappsAI body");
+  assert.equal(payload.password, undefined, "the telco password leaked into a bdappsAI body");
+
+  const curl = toCurl(chat, payload);
+  assert.match(curl, /--header "Authorization: \$BDAPPSAI_API_KEY"/);
+  assert.doesNotMatch(curl, /BDAPPS_PASSWORD/);
+  // Quoted heredoc: nothing in a prompt should be expanded by the shell.
+  assert.match(curl, /--data @- <<'REQUEST'/);
+});
+
+test("bdappsAI validation catches an unavailable model and a malformed conversation", () => {
+  const chat = findEntry("bdappsai-chat-completions");
+
+  const badModel = validatePayload(chat, { model: "gpt-5-turbo", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(badModel.valid, false);
+  assert.ok(badModel.errors.some((e) => e.includes("must be one of")));
+
+  const badRole = validatePayload(chat, { model: "gpt-4o-mini", messages: [{ role: "human", content: "hi" }] });
+  assert.equal(badRole.valid, false);
+  assert.ok(badRole.errors.some((e) => e.includes("role")));
+
+  const noToolId = validatePayload(chat, {
+    model: "gpt-4o-mini",
+    messages: [{ role: "tool", content: "42" }],
+  });
+  assert.equal(noToolId.valid, false);
+  assert.ok(noToolId.errors.some((e) => e.includes("tool_call_id")));
+
+  const badTemp = validatePayload(chat, {
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: "hi" }],
+    temperature: 3,
+  });
+  assert.equal(badTemp.valid, false);
+  assert.ok(badTemp.errors.some((e) => e.includes("between 0 and 2")));
+});
+
+/**
+ * The expensive mistake: a prompt built by string-interpolating a subscriber
+ * address. It leaves the trust boundary and reaches a third-party provider, and
+ * nothing downstream can pull it back.
+ */
+test("bdappsAI validation refuses a prompt carrying subscriber identity", () => {
+  const chat = findEntry("bdappsai-chat-completions");
+  const leaked = validatePayload(chat, {
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: "Summarise the account for tel:8801812345678" }],
+    max_completion_tokens: 200,
+  });
+  assert.equal(leaked.valid, false);
+  assert.ok(leaked.errors.some((e) => e.includes("trust boundary")));
+
+  const image = findEntry("bdappsai-image-generation");
+  const leakedUser = validatePayload(image, { prompt: "a red apple", user: "tel:8801812345678" });
+  assert.equal(leakedUser.valid, false);
+});
+
+test("bdappsAI validation warns about an uncapped call and about billed fan-out", () => {
+  const chat = findEntry("bdappsai-chat-completions");
+  const uncapped = validatePayload(chat, {
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: "hi" }],
+    n: 4,
+  });
+  assert.equal(uncapped.valid, true, uncapped.errors.join("; "));
+  assert.ok(uncapped.warnings.some((w) => w.includes("max_completion_tokens")));
+  assert.ok(uncapped.warnings.some((w) => w.includes("BILLS")));
+  assert.ok(uncapped.warnings.some((w) => w.includes("spends real tokens")));
+});
+
+test("every documented bdappsAI sample validates against its own spec", () => {
+  for (const s of bdappsaiServices()) {
+    const result = validatePayload(s, s.sampleRequest);
+    assert.equal(result.valid, true, `${s.id} sample is invalid: ${result.errors.join("; ")}`);
+  }
+});
+
+test("diagnose routes bdappsAI symptoms away from the telco signatures", () => {
+  assert.equal(diagnose("TOKEN_QUOTA_EXCEEDED").matchedOn, "bdappsaiError");
+  assert.match(diagnose("bdappsai returns 401").fix, /no Bearer prefix/);
+  assert.match(diagnose("the answer is truncated").fix, /finish_reason/);
+  // …without capturing the telco ones.
+  assert.equal(diagnose("callbacks never arrive").matchedOn, "symptom");
+  assert.equal(diagnose("E1303").code, "E1303");
+});
+
+test("the bdappsAI reference document states the conventions that differ", () => {
+  const doc = readFileSync(join(repoRoot, "references", "14-bdapps-ai.md"), "utf8");
+  for (const fact of [
+    "app_<keyId>.<keyValue>",
+    "https://developer.bdapps.com/bdappsai/api",
+    "BDAPPSAI_API_KEY",
+    "finish_reason",
+    "max_completion_tokens",
+    "TOKEN_QUOTA_EXCEEDED",
+  ]) {
+    assert.ok(doc.includes(fact), `14-bdapps-ai.md does not document ${fact}`);
+  }
+  // The two inversions that break a shared client.
+  assert.match(doc, /no `?Bearer`?/i);
+  assert.match(doc, /There is no `statusCode` field/);
+});
+
+test("no bdappsAI key-shaped string is committed", () => {
+  // A real key is app_ + hex keyId + "." + a long hex keyValue. The published
+  // docs use one as an example; it must not be copied into this repo.
+  const keyShaped = /app_[0-9a-f]{6,}\.[0-9a-f]{16,}/;
+  const skipDirs = new Set([".git", "node_modules"]);
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!skipDirs.has(entry.name)) walk(path);
+        continue;
+      }
+      let content;
+      try {
+        content = readFileSync(path, "utf8");
+      } catch {
+        continue;
+      }
+      if (keyShaped.test(content)) offenders.push(path.replace(repoRoot, "."));
+    }
+  };
+  walk(repoRoot);
+  assert.deepEqual(
+    offenders,
+    [],
+    `bdappsAI key-shaped strings found:\n${offenders.join("\n")}\n` +
+      `Rotate it at https://developer.bdapps.com/bdappsai before anything else.`
+  );
+});
+
+/* ── Lookup ──────────────────────────────────────────────────────────────── */
+
+test("services resolve by id, name and alias", () => {
+  assert.equal(findEntry("subscription-unregister").id, "subscription-unregister");
+  assert.equal(findEntry("unsub").id, "subscription-unregister");
+  assert.equal(findEntry("UNSUB").id, "subscription-unregister");
+  assert.equal(findEntry("Query Base (subscriber base size)").id, "subscription-query-base");
+  assert.equal(findEntry("nope"), null);
+});
+
+test("every service resolves to a URL on the one production host", () => {
+  assert.equal(urlFor(findEntry("sms-send")), "https://developer.bdapps.com/sms/send");
+  assert.equal(urlFor(findEntry("otp-request")), "https://developer.bdapps.com/otp/request");
+  assert.equal(urlFor(findEntry("caas-balance-query")), "https://developer.bdapps.com/caas/get/balance");
+  for (const service of catalog.services) {
+    assert.ok(urlFor(service).startsWith(catalog.baseUrls.primary), `${service.id} is off-host`);
+  }
+});
+
+test("services the bdapps API docs do not publish are absent", () => {
+  for (const absent of ["lbs-locate", "charging-notification"]) {
+    assert.equal(findEntry(absent), null, `${absent} is not in the published bdapps contract`);
+  }
+});
+
+test("unknown status codes degrade gracefully", () => {
+  const unknown = lookupStatusCode("E9999");
+  assert.equal(unknown.known, false);
+  assert.equal(unknown.class, "unknown");
+  assert.equal(lookupStatusCode("S9999").class, "success");
+});
+
+test("search finds services by intent, not just by id", () => {
+  assert.ok(search("base size").some((r) => r.id === "subscription-query-base"));
+  assert.ok(search("opt out").some((r) => r.id === "subscription-unregister"));
+  assert.ok(search("E1303").some((r) => r.id === "E1303"));
+  assert.equal(search("").length, 0);
+});
+
+/* ── Validation ──────────────────────────────────────────────────────────── */
+
+test("validation catches destinationAddresses sent as a string", () => {
+  const result = validatePayload(findEntry("sms-send"), {
+    applicationId: "APP_000001",
+    password: "x",
+    message: "hi",
+    destinationAddresses: "tel:8801812345678",
+  });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((e) => e.includes("must be an ARRAY")));
+});
+
+test("validation catches a missing tel: prefix", () => {
+  const result = validatePayload(findEntry("subscription-register"), {
+    applicationId: "APP_000001",
+    password: "x",
+    action: "1",
+    subscriberId: "8801812345678",
+  });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((e) => e.includes("tel:")));
+});
+
+test("validation catches a bad enum value", () => {
+  const result = validatePayload(findEntry("subscription-register"), {
+    applicationId: "APP_000001",
+    password: "x",
+    action: "yes",
+    subscriberId: "tel:8801812345678",
+  });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((e) => e.includes("must be one of")));
+});
+
+test("validation rejects an oversized externalTrxId", () => {
+  const result = validatePayload(findEntry("caas-direct-debit"), {
+    applicationId: "APP_000001",
+    password: "x",
+    externalTrxId: "x".repeat(33),
+    subscriberId: "tel:8801812345678",
+    amount: "1",
+    paymentInstrument: "MobileAccount",
+  });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((e) => e.includes("32 characters")));
+});
+
+test("validation warns loudly about a broadcast", () => {
+  const result = validatePayload(findEntry("sms-send"), {
+    applicationId: "APP_000001",
+    password: "x",
+    message: "hi",
+    destinationAddresses: ["tel:all"],
+  });
+  assert.equal(result.valid, true);
+  assert.ok(result.warnings.some((w) => w.includes("ENTIRE subscriber base")));
+});
+
+test("validation warns that charging moves real money", () => {
+  const result = validatePayload(findEntry("caas-direct-debit"), {
+    applicationId: "APP_000001",
+    password: "x",
+    externalTrxId: "abc",
+    subscriberId: "tel:8801812345678",
+    amount: "1",
+    paymentInstrument: "MobileAccount",
+  });
+  assert.ok(result.warnings.some((w) => w.includes("real money")));
+});
+
+test("a well-formed payload validates", () => {
+  const result = validatePayload(findEntry("sms-send"), {
+    applicationId: "APP_000001",
+    password: "x",
+    message: "hi",
+    destinationAddresses: ["tel:8801812345678"],
+  });
+  assert.equal(result.valid, true, result.errors.join("; "));
+});
+
+test("every documented sample request validates against its own spec", () => {
+  for (const s of catalog.services) {
+    const payload = { ...s.sampleRequest, applicationId: "APP_000001", password: "x" };
+    const result = validatePayload(s, payload);
+    assert.equal(result.valid, true, `${s.id} sample is invalid: ${result.errors.join("; ")}`);
+  }
+});
+
+/* ── Building ────────────────────────────────────────────────────────────── */
+
+test("built payloads never contain a literal credential", () => {
+  for (const s of catalog.services) {
+    const payload = buildPayload(s, {});
+    assert.equal(payload.applicationId, "$BDAPPS_APP_ID");
+    assert.equal(payload.password, "$BDAPPS_PASSWORD");
+  }
+});
+
+test("curl output is a single runnable POST with a JSON body", () => {
+  const s = findEntry("subscription-query-base");
+  const curl = toCurl(s, buildPayload(s, {}));
+  assert.match(curl, /^curl -sS -X POST 'https:\/\/developer\.bdapps\.com\/subscription\/query-base'/);
+  assert.match(curl, /Content-Type: application\/json/);
+  assert.match(curl, /--max-time \d+/);
+  // The heredoc is unquoted on purpose: the credential variables must expand,
+  // so the command runs as printed without a secret ever being written down.
+  assert.match(curl, /--data @- <<REQUEST\n[\s\S]*\nREQUEST$/);
+  assert.match(curl, /"applicationId": "\$BDAPPS_APP_ID"/);
+});
+
+/* ── Diagnosis ───────────────────────────────────────────────────────────── */
+
+test("diagnose extracts a status code from free text", () => {
+  const d = diagnose("everything returns E1303 in production");
+  assert.equal(d.matchedOn, "statusCode");
+  assert.equal(d.code, "E1303");
+});
+
+test("diagnose matches symptom signatures", () => {
+  assert.equal(diagnose("callbacks never arrive").matchedOn, "symptom");
+  assert.equal(diagnose("works locally but fails deployed").matchedOn, "symptom");
+  assert.match(diagnose("we double charged a customer").fix, /externalTrxId/);
+});
+
+test("diagnose degrades to search when nothing matches", () => {
+  const d = diagnose("subscription");
+  assert.equal(d.matchedOn, "none");
+  assert.ok(Array.isArray(d.searchResults));
+});
+
+/* ── Repo consistency ────────────────────────────────────────────────────── */
+
+test("all fourteen reference documents exist", () => {
+  const files = readdirSync(join(repoRoot, "references")).filter((f) => f.endsWith(".md"));
+  assert.equal(files.length, 14, `expected 14 reference docs, found ${files.length}`);
+});
+
+/**
+ * Error handling is built from the complete table in 08-status-codes.md, so every
+ * code there must carry the same handling class the catalog and `bdapps code`
+ * report. A class that disagrees sends someone's retry logic the wrong way.
+ */
+test("the status-code reference classifies every code exactly as the catalog does", () => {
+  const doc = readFileSync(join(repoRoot, "references", "08-status-codes.md"), "utf8");
+  const table = doc.slice(doc.indexOf("## Complete official error code list"));
+  const rows = [...table.matchAll(/^\| `(E1\d{3})` \| (\S+) \| /gm)];
+
+  const documented = new Map(rows.map(([, code, cls]) => [code, cls]));
+  const expected = Object.entries(catalog.statusCodes).filter(([code]) => code !== "S1000");
+
+  assert.equal(documented.size, expected.length, "the complete list is missing codes");
+  for (const [code, meta] of expected) {
+    assert.equal(documented.get(code), meta.class, `08-status-codes.md misclassifies ${code}`);
+  }
+});
+
+/**
+ * The skill used to ship code emitters for six languages. They were removed
+ * because an emitter encodes language idiom rather than the bdapps contract:
+ * it ages with six ecosystems, and it makes every seventh language
+ * second-class. The curl reference replaced them. This keeps the docs from
+ * advertising a command that no longer exists — and the emitters from
+ * reappearing without the decision being revisited.
+ */
+test("no entry point advertises a code generator", () => {
+  const surfaces = [
+    "SKILL.md",
+    "AGENTS.md",
+    "README.md",
+    ...readdirSync(join(repoRoot, "skills")).map((d) => `skills/${d}/SKILL.md`),
+    ...readdirSync(join(repoRoot, "references")).map((f) => `references/${f}`),
+  ];
+  const offenders = surfaces.filter((file) =>
+    /bdapps(\.mjs)?\s+codegen|npm run codegen|--lang=/.test(readFileSync(join(repoRoot, file), "utf8"))
+  );
+  assert.deepEqual(offenders, [], `these still document a removed codegen command: ${offenders}`);
+  assert.equal(existsSync(join(repoRoot, "tools", "codegen.mjs")), false);
+});
+
+/**
+ * The curl reference is the tool-free path into the platform: an agent working
+ * in Ruby, Rust or Kotlin gets no emitter, so this page is the whole contract it
+ * has. It is generated from the catalog, and CI fails if it drifts.
+ */
+test("the curl reference is in sync with the catalog", () => {
+  assert.doesNotThrow(() =>
+    execFileSync("node", ["scripts/build-curl-reference.mjs", "--check"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+  );
+});
+
+test("the curl reference documents every endpoint, parameter and response field", () => {
+  const doc = readFileSync(join(repoRoot, "references", "13-curl-reference.md"), "utf8");
+  const missing = [];
+  // Pipes are escaped in the generated tables, or they would split a cell.
+  const documents = (text) => doc.includes(String(text).replace(/\|/g, "\\|"));
+
+  for (const service of catalog.services) {
+    const url = service.absoluteUrl || `${catalog.baseUrls.primary}${service.path}`;
+    if (!doc.includes(`POST ${url}`)) missing.push(`endpoint ${url}`);
+    if (!doc.includes(`curl -sS -X POST "$${service.envVar}"`)) {
+      missing.push(`runnable request for ${service.id}`);
+    }
+    for (const p of service.parameters) {
+      if (!doc.includes(`\`${p.name}\``)) missing.push(`${service.id}.${p.name}`);
+      if (!documents(p.description)) missing.push(`definition of ${service.id}.${p.name}`);
+    }
+    for (const f of service.responseFields || []) {
+      if (!documents(f.description)) missing.push(`response field ${service.id}.${f.name}`);
+    }
+  }
+
+  for (const cb of catalog.callbacks) {
+    if (!doc.includes(cb.suggestedPath)) missing.push(`callback route ${cb.id}`);
+    for (const f of cb.fields) {
+      if (!documents(f.description)) missing.push(`definition of ${cb.id}.${f.name}`);
+    }
+  }
+
+  for (const service of bdappsaiServices()) {
+    if (!doc.includes(`POST ${urlFor(service)}`)) missing.push(`endpoint ${urlFor(service)}`);
+    if (!doc.includes(`curl -sS -X POST "$${service.envVar}"`)) {
+      missing.push(`runnable request for ${service.id}`);
+    }
+    for (const p of service.parameters) {
+      if (!doc.includes(`\`${p.name}\``)) missing.push(`${service.id}.${p.name}`);
+      if (!documents(p.description)) missing.push(`definition of ${service.id}.${p.name}`);
+    }
+    for (const f of service.responseFields || []) {
+      if (!documents(f.description)) missing.push(`response field ${service.id}.${f.name}`);
+    }
+  }
+
+  assert.deepEqual(missing, [], `curl reference is missing:\n${missing.join("\n")}`);
+});
+
+test("the curl reference contains no credential, only environment placeholders", () => {
+  const doc = readFileSync(join(repoRoot, "references", "13-curl-reference.md"), "utf8");
+  assert.match(doc, /"password": "\$BDAPPS_PASSWORD"/);
+  assert.doesNotMatch(doc, /"password"\s*:\s*"(?!\$BDAPPS_PASSWORD)[^"]{6,}"/);
+});
+
+/**
+ * The CLI lists reference documents from a hardcoded array. A new file in
+ * references/ that nobody registered is invisible to `bdapps reference`.
+ */
+test("the CLI lists every reference document that exists", () => {
+  const onDisk = readdirSync(join(repoRoot, "references"))
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => f.replace(/\.md$/, ""))
+    .sort();
+  const listed = JSON.parse(
+    execFileSync("node", ["tools/bdapps.mjs", "reference", "--json"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+  ).documents.sort();
+  assert.deepEqual(listed, onDisk);
+});
+
+/**
+ * The environment surface is deliberately tiny: two credentials, plus one URL
+ * per provisionable service. Anything else (timeouts, encodings, retry counts)
+ * belongs in code as a constant — it is a property of the protocol, not of the
+ * deployment. This test stops that surface creeping back.
+ */
+test("the env example exposes only credentials and per-service endpoints", () => {
+  const example = readFileSync(join(repoRoot, "templates", ".env.example"), "utf8");
+  const declared = [...example.matchAll(/^#?([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]);
+
+  const allowed = new Set([
+    "BDAPPS_APP_ID",
+    "BDAPPS_PASSWORD",
+    "BDAPPS_SMS_SEND_URL",
+    "BDAPPS_USSD_SEND_URL",
+    "BDAPPS_SUBSCRIPTION_SEND_URL",
+    "BDAPPS_SUBSCRIPTION_STATUS_URL",
+    "BDAPPS_SUBSCRIPTION_QUERY_BASE_URL",
+    "BDAPPS_OTP_REQUEST_URL",
+    "BDAPPS_OTP_VERIFY_URL",
+    "BDAPPS_CAAS_DEBIT_URL",
+    "BDAPPS_CAAS_GET_BALANCE_URL",
+    // The Charging SDK is a signed browser redirect with its own key pair, not a
+    // service endpoint — it has no URL variable, and its secret must never be
+    // confused with the application password.
+    "BDAPPS_SDK_API_KEY",
+    "BDAPPS_SDK_API_SECRET",
+    // bdappsAI is a separate product with a separate key, so it gets its own
+    // prefix. A shared BDAPPS_ variable would invite one client to pick up
+    // the other product's secret.
+    "BDAPPSAI_API_KEY",
+    "BDAPPSAI_CHAT_COMPLETIONS_URL",
+    "BDAPPSAI_IMAGE_GENERATIONS_URL",
+  ]);
+
+  const unexpected = declared.filter((v) => !allowed.has(v));
+  assert.deepEqual(unexpected, [], `unexpected env vars in .env.example: ${unexpected.join(", ")}`);
+
+  for (const required of ["BDAPPS_APP_ID", "BDAPPS_PASSWORD"]) {
+    assert.ok(declared.includes(required), `.env.example is missing ${required}`);
+  }
+});
+
+test("every service endpoint variable maps to a real catalog service", () => {
+  const example = readFileSync(join(repoRoot, "templates", ".env.example"), "utf8");
+  const urls = [...example.matchAll(/^#?(?:BDAPPS|BDAPPSAI)_\w+_URL=(\S+)/gm)].map((m) => m[1]);
+  const known = new Set(
+    [...catalog.services, ...bdappsaiServices()].map(
+      (s) => s.absoluteUrl || `${catalog.baseUrls.primary}${s.path}`
+    )
+  );
+  for (const url of urls) {
+    assert.ok(known.has(url), `.env.example lists ${url}, which is not a catalog endpoint`);
+  }
+});
+
+/**
+ * The same three patterns the CI secrets job runs, so a leak fails locally
+ * before it reaches a push. These detect what a real credential looks like
+ * rather than allowlisting placeholder spellings — a real bdapps password is
+ * a long unbroken alphanumeric run, which "replace-me", "…", "" and "$VAR"
+ * never are.
+ */
+test("no credential-shaped string is committed anywhere", () => {
+  const patterns = [
+    { name: "JSON password value", re: /"password"\s*:\s*"[A-Za-z0-9]{16,}"/ },
+    { name: "env password value", re: /BDAPPS_PASSWORD=[A-Za-z0-9]{12,}/ },
+  ];
+
+  // ci.yml is excluded because it contains the patterns as its own source text.
+  // Nothing else is excluded — including this file, which is why the fixture
+  // below is generated at runtime rather than written as a literal.
+  const skipDirs = new Set([".git", "node_modules"]);
+  const skipFiles = new Set(["ci.yml"]);
+  const offenders = [];
+
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!skipDirs.has(entry.name)) walk(join(dir, entry.name));
+        continue;
+      }
+      if (skipFiles.has(entry.name)) continue;
+      const path = join(dir, entry.name);
+      let content;
+      try {
+        content = readFileSync(path, "utf8");
+      } catch {
+        continue; // binary or unreadable
+      }
+      for (const { name, re } of patterns) {
+        if (re.test(content)) {
+          offenders.push(`${path.replace(repoRoot, ".")} — ${name}`);
+        }
+      }
+    }
+  };
+
+  walk(repoRoot);
+  assert.deepEqual(
+    offenders,
+    [],
+    `credential-shaped strings found:\n${offenders.join("\n")}\n` +
+      `Rotate the credential in the bdapps portal before anything else — see SECURITY.md.`
+  );
+});
+
+test("documented placeholders do not trip the credential scan", () => {
+  // Regression guard: these are the placeholder spellings actually used in the
+  // repo. An earlier allowlist-based scan broke CI when "…" was introduced.
+  const envRe = /BDAPPS_PASSWORD=[A-Za-z0-9]{12,}/;
+  for (const placeholder of [
+    "BDAPPS_PASSWORD=replace-me",
+    "BDAPPS_PASSWORD=…",
+    "BDAPPS_PASSWORD=",
+    "BDAPPS_PASSWORD=$BDAPPS_PASSWORD",
+    "BDAPPS_PASSWORD=<your-password>",
+  ]) {
+    assert.equal(envRe.test(placeholder), false, `"${placeholder}" must not be flagged`);
+  }
+  // ...but a real one must still be caught.
+  //
+  // Generated at runtime, never written as a literal: a credential-shaped
+  // string committed here would be flagged by the very scan it is testing,
+  // which is exactly what happened the first time round.
+  const credentialShaped = randomBytes(16).toString("hex"); // 32 hex chars
+  assert.equal(envRe.test(`BDAPPS_PASSWORD=${credentialShaped}`), true);
+});
+
+test("the only contact number in the docs is the support WhatsApp number", () => {
+  assert.equal(catalog.platform.support.whatsapp, "+8801878977505");
+  const docs = readdirSync(join(repoRoot, "references"))
+    .map((f) => readFileSync(join(repoRoot, "references", f), "utf8"))
+    .join("\n");
+  const contactish = docs.match(/\b0\d{9}\b/g) || [];
+  assert.deepEqual(contactish, [], `found local-format phone numbers: ${contactish.join(", ")}`);
+});

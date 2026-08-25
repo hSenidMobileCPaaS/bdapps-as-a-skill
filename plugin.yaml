@@ -1,0 +1,23 @@
+name: bdapps
+version: 1.0.0
+description: bdapps telco integration for AI agents — always-on context, bundled skills, and slash commands.
+license: Proprietary — see LICENSE
+author: hSenid Mobile Solutions
+provides_skills:
+  - bdapps
+  - bdapps-scaffold
+  - bdapps-review
+  - bdapps-callbacks
+  - bdapps-debug
+  - bdapps-golive
+  - bdapps-ai
+  - bdapps-help
+provides_commands:
+  - bdapps
+  - bdapps-scaffold
+  - bdapps-review
+  - bdapps-callbacks
+  - bdapps-debug
+  - bdapps-golive
+  - bdapps-ai
+  - bdapps-help

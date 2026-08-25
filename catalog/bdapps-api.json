@@ -1,0 +1,2785 @@
+{
+  "$schema": "./bdapps-api.schema.json",
+  "catalogVersion": "1.0.0",
+  "source": "https://dev.bdapps.com/API_Documentation/bdapps_tap_api.html",
+  "platform": {
+    "name": "bdapps",
+    "operator": "Robi Axiata PLC",
+    "market": "Bangladesh",
+    "middleware": "TAP (Telco Application Platform)",
+    "portal": "https://user.bdapps.com",
+    "docs": "https://dev.bdapps.com/API_Documentation/bdapps_tap_api.html",
+    "site": "https://dev.bdapps.com",
+    "store": "https://bdapps.com/appstore/",
+    "support": {
+      "email": "support@bdapps.com",
+      "business": "business.development@bdapps.com",
+      "whatsapp": "+8801878977505"
+    }
+  },
+  "operators": [
+    {
+      "name": "Robi",
+      "prefixes": [
+        "018",
+        "016"
+      ],
+      "note": "Robi Axiata's own network. International form: 88018…, 88016…"
+    },
+    {
+      "name": "Airtel",
+      "prefixes": [
+        "016"
+      ],
+      "note": "Airtel Bangladesh, operated by Robi Axiata since the 2016 merger. Shares the 016 series."
+    }
+  ],
+  "baseUrls": {
+    "primary": "https://developer.bdapps.com",
+    "egressIpEcho": "https://api.ipify.org",
+    "configuration": "Configure one URL per provisioned service (BDAPPS_SMS_SEND_URL, BDAPPS_USSD_SEND_URL, …). An unset endpoint means that API is not enabled on the application, and the client should refuse to call it rather than fail with E1309 at the platform. See templates/.env.example."
+  },
+  "conventions": {
+    "method": "POST",
+    "contentType": "application/json",
+    "auth": {
+      "type": "body-credentials",
+      "fields": [
+        "applicationId",
+        "password"
+      ],
+      "note": "Every outbound request carries applicationId and password in the JSON body. There are no headers, tokens or signatures."
+    },
+    "addressing": {
+      "format": "tel:<msisdn>",
+      "rules": [
+        "Always tel:-prefixed, no + and no spaces. Bangladesh MSISDNs are in international form: tel:8801812345678.",
+        "May be a masked hash (tel:hu3b84346f...) when number masking is provisioned. Treat as opaque.",
+        "tel:all broadcasts to the entire subscribed base (SMS send only)."
+      ]
+    },
+    "responseEnvelope": {
+      "always": [
+        "statusCode",
+        "statusDetail"
+      ],
+      "common": [
+        "version",
+        "requestId"
+      ],
+      "criticalNote": "bdapps returns HTTP 200 for application-level failures. Branch on statusCode, never on the HTTP status alone. S1000 is success."
+    },
+    "callbackAck": {
+      "statusCode": "S1000",
+      "statusDetail": "Success"
+    },
+    "currency": {
+      "code": "BDT",
+      "symbol": "Tk.",
+      "note": "Only BDT is accepted by the CaaS APIs."
+    }
+  },
+  "services": [
+    {
+      "id": "sms-send",
+      "envVar": "BDAPPS_SMS_SEND_URL",
+      "name": "SMS Send",
+      "category": "sms",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/sms/send",
+      "summary": "Send an MT (Mobile Terminated) SMS to one or more subscribers.",
+      "reference": "references/02-sms.md",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID as given when provisioned."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password given when provisioned."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "required": false,
+          "description": "API version (1.0, 2.0). Defaults to latest."
+        },
+        {
+          "name": "destinationAddresses",
+          "type": "string[]",
+          "required": true,
+          "description": "Array of tel:-prefixed addresses. Always an array, even for one recipient. tel:all targets the whole subscribed base."
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true,
+          "description": "Message body. Over-length messages are split by the platform and charged per part."
+        },
+        {
+          "name": "sourceAddress",
+          "type": "string",
+          "required": false,
+          "description": "Sender address shown to the user — your allocated shortcode (e.g. \"77000\") or a provisioned tel: alias. Must be provisioned or the send fails with E1331."
+        },
+        {
+          "name": "deliveryStatusRequest",
+          "type": "enum",
+          "required": false,
+          "enum": [
+            "0",
+            "1"
+          ],
+          "description": "0 = no delivery report, 1 = request one. Defaults to 0."
+        },
+        {
+          "name": "encoding",
+          "type": "enum",
+          "required": false,
+          "enum": [
+            "0",
+            "240",
+            "245"
+          ],
+          "description": "0 = Text, 240 = Flash SMS, 245 = Binary (message hex-encoded). Defaults to Text."
+        },
+        {
+          "name": "binaryHeader",
+          "type": "string",
+          "required": false,
+          "description": "Hex-encoded UDH for advanced binary messages. Only meaningful with encoding 245."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "messageId",
+          "type": "string",
+          "description": "Platform message identifier."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "API version."
+        },
+        {
+          "name": "destinationResponses",
+          "type": "object[]",
+          "description": "Per-recipient results. A multi-recipient send can partially succeed, so branch on each entry's statusCode, not only the top-level one.",
+          "fields": [
+            {
+              "name": "address",
+              "type": "string",
+              "description": "The tel:-prefixed recipient this entry reports on."
+            },
+            {
+              "name": "messageId",
+              "type": "string",
+              "description": "Per-recipient message identifier. Store it to match delivery reports."
+            },
+            {
+              "name": "statusCode",
+              "type": "string",
+              "description": "Outcome for this recipient alone."
+            },
+            {
+              "name": "statusDetail",
+              "type": "string",
+              "description": "Human-readable outcome for this recipient."
+            },
+            {
+              "name": "timeStamp",
+              "type": "string",
+              "description": "When the platform processed this recipient."
+            }
+          ]
+        }
+      ],
+      "sampleRequest": {
+        "message": "Hello",
+        "destinationAddresses": [
+          "tel:8801812345678"
+        ],
+        "password": "…",
+        "applicationId": "APP_999999"
+      },
+      "sampleResponse": {
+        "statusCode": "S1000",
+        "statusDetail": "Success",
+        "messageId": "MSG_000111",
+        "version": "1.0"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1309",
+        "E1311",
+        "E1322",
+        "E1323",
+        "E1325",
+        "E1331",
+        "E1332",
+        "E1333",
+        "E1334",
+        "E1335",
+        "E1341",
+        "E1384"
+      ],
+      "rules": [
+        "destinationAddresses is always an array.",
+        "Guard tel:all behind a deliberate, separately-authorised code path.",
+        "Keep under 160 GSM-7 characters for one part; Bengali is UCS-2, so budget 70. Every part is billed.",
+        "Only set deliveryStatusRequest to 1 if you consume the delivery-report callback."
+      ]
+    },
+    {
+      "id": "ussd-send",
+      "envVar": "BDAPPS_USSD_SEND_URL",
+      "name": "USSD Send",
+      "category": "ussd",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/ussd/send",
+      "summary": "Send a USSD screen to a subscriber inside an active session.",
+      "reference": "references/03-ussd.md",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID as given when provisioned."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password given when provisioned."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "required": true,
+          "description": "API version. Defaults to latest."
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true,
+          "description": "Screen text sent to the handset. ~182 char limit; assume 160."
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": true,
+          "description": "Session number assigned by the USSD gateway. Echo the one the platform sent you; never generate your own."
+        },
+        {
+          "name": "ussdOperation",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "mt-init",
+            "mt-cont",
+            "mt-fin"
+          ],
+          "description": "mt-init starts an app-initiated session, mt-cont keeps it open, mt-fin closes it."
+        },
+        {
+          "name": "destinationAddress",
+          "type": "string",
+          "required": true,
+          "description": "tel:-prefixed subscriber address; may be a hash key."
+        },
+        {
+          "name": "encoding",
+          "type": "enum",
+          "required": false,
+          "enum": [
+            "440"
+          ],
+          "description": "440 = plain ASCII."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "description": "Uniquely identifies the request within bdapps."
+        },
+        {
+          "name": "timeStamp",
+          "type": "string",
+          "description": "Processed timestamp."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "API version."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_000029",
+        "password": "…",
+        "version": "1.0",
+        "message": "1. Press One\n2. Press Two\n3. Exit",
+        "sessionId": "1330929317043",
+        "ussdOperation": "mt-cont",
+        "destinationAddress": "tel:8801812345678",
+        "encoding": "440"
+      },
+      "sampleResponse": {
+        "statusCode": "S1000",
+        "timeStamp": "1203051205",
+        "statusDetail": "Success",
+        "requestId": "1330929317059",
+        "version": "1.0"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1309",
+        "E1383"
+      ],
+      "rules": [
+        "Echo the platform's sessionId. A wrong one orphans the session.",
+        "Terminal screens must use mt-fin, or the session hangs until the network times it out.",
+        "Plain ASCII only (encoding 440) — no emoji, no Bengali script, no smart quotes.",
+        "Reply fast: USSD sessions time out in seconds."
+      ]
+    },
+    {
+      "id": "subscription-register",
+      "envVar": "BDAPPS_SUBSCRIPTION_SEND_URL",
+      "name": "Subscription Register",
+      "aliases": [
+        "subscribe",
+        "opt-in"
+      ],
+      "category": "subscription",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/subscription/send",
+      "summary": "Opt a subscriber in to the application.",
+      "reference": "references/04-subscription.md",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID as received when provisioned."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password as received when provisioned."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "required": false,
+          "description": "API version. Defaults to latest."
+        },
+        {
+          "name": "action",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "1"
+          ],
+          "description": "1 = opt in. Send the string \"1\"."
+        },
+        {
+          "name": "subscriberId",
+          "type": "string",
+          "required": true,
+          "description": "tel:-prefixed subscriber address; may be masked."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "description": "Uniquely identifies the request within the SDP."
+        },
+        {
+          "name": "subscriptionStatus",
+          "type": "enum",
+          "description": "REGISTERED, UNREGISTERED or PENDING. PENDING CHARGE means the subscriber has not been charged yet."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "API version."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_999999",
+        "password": "…",
+        "version": "1.0",
+        "action": "1",
+        "subscriberId": "tel:8801812345678"
+      },
+      "sampleResponse": {
+        "version": "1.0",
+        "requestId": "1374746416574",
+        "statusCode": "S1000",
+        "statusDetail": "SUCCESS",
+        "subscriptionStatus": "REGISTERED"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1309",
+        "E1317",
+        "E1324",
+        "E1351",
+        "E1342",
+        "E1343"
+      ],
+      "benignCodes": [
+        "E1351"
+      ],
+      "rules": [
+        "Only call with explicit, recorded consent. Disclose amount and frequency before registering.",
+        "E1351 (already registered) is success — the desired state already holds.",
+        "A PENDING result is not active yet; wait for the subscription notification before delivering the service."
+      ]
+    },
+    {
+      "id": "subscription-unregister",
+      "envVar": "BDAPPS_SUBSCRIPTION_SEND_URL",
+      "name": "Subscription Unregister",
+      "aliases": [
+        "unsub",
+        "unsubscribe",
+        "opt-out"
+      ],
+      "category": "subscription",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/subscription/send",
+      "summary": "Opt a subscriber out of the application.",
+      "reference": "references/04-subscription.md",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID as received when provisioned."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password as received when provisioned."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "required": false,
+          "description": "API version. Defaults to latest."
+        },
+        {
+          "name": "action",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "0"
+          ],
+          "description": "0 = opt out."
+        },
+        {
+          "name": "subscriberId",
+          "type": "string",
+          "required": true,
+          "description": "tel:-prefixed subscriber address; may be masked."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "description": "Uniquely identifies the request within the SDP."
+        },
+        {
+          "name": "subscriptionStatus",
+          "type": "enum",
+          "description": "UNREGISTERED on success."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "API version."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_999999",
+        "password": "…",
+        "version": "1.0",
+        "action": "0",
+        "subscriberId": "tel:8801812345678"
+      },
+      "sampleResponse": {
+        "version": "1.0",
+        "requestId": "1374746416574",
+        "statusCode": "S1000",
+        "statusDetail": "SUCCESS",
+        "subscriptionStatus": "UNREGISTERED"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1309",
+        "E1356"
+      ],
+      "benignCodes": [
+        "E1356"
+      ],
+      "rules": [
+        "Unregister must be as easy as register — offer it over MO SMS (STOP/UNSUB/OFF), USSD and in-app.",
+        "E1356 (not registered) is success — the desired state already holds.",
+        "Honour it immediately, including cancelling queued and scheduled messages."
+      ]
+    },
+    {
+      "id": "subscription-status",
+      "envVar": "BDAPPS_SUBSCRIPTION_STATUS_URL",
+      "name": "Subscription Status",
+      "category": "subscription",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/subscription/getStatus",
+      "summary": "Check the current subscription status of one subscriber.",
+      "reference": "references/04-subscription.md",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID as received when provisioned."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password as received when provisioned."
+        },
+        {
+          "name": "subscriberId",
+          "type": "string",
+          "required": true,
+          "description": "tel:-prefixed subscriber address; may be masked."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "subscriptionStatus",
+          "type": "enum",
+          "description": "REGISTERED / UNREGISTERED / PENDING / CHARGE."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "API version."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_999999",
+        "password": "…",
+        "subscriberId": "tel:8801812345678"
+      },
+      "sampleResponse": {
+        "version": "1.0",
+        "subscriptionStatus": "REGISTERED",
+        "statusCode": "S1000",
+        "statusDetail": "SUCCESS"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1309",
+        "E1356"
+      ],
+      "rules": [
+        "Use for reconciliation, not as a per-request gate — mirror state locally from the subscription notification instead."
+      ]
+    },
+    {
+      "id": "subscription-query-base",
+      "envVar": "BDAPPS_SUBSCRIPTION_QUERY_BASE_URL",
+      "name": "Query Base (subscriber base size)",
+      "aliases": [
+        "base size",
+        "query base",
+        "subscriber count"
+      ],
+      "category": "subscription",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/subscription/query-base",
+      "summary": "Return the number of subscribers currently registered to the application.",
+      "reference": "references/04-subscription.md",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID as received when provisioned."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password as received when provisioned."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "baseSize",
+          "type": "string",
+          "description": "Current subscriber base size. Arrives as a string — coerce before arithmetic."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "API version."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_000201",
+        "password": "…"
+      },
+      "sampleResponse": {
+        "version": "1.0",
+        "baseSize": "10",
+        "statusCode": "S1000",
+        "statusDetail": "SUCCESS"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1309"
+      ],
+      "rules": [
+        "Needs no subscriber and costs nothing — the ideal connectivity and credential smoke test.",
+        "baseSize is a string. Parse it.",
+        "Poll on a schedule into your own metrics rather than per page load.",
+        "Sanity-check it before any tel:all broadcast."
+      ]
+    },
+    {
+      "id": "otp-request",
+      "envVar": "BDAPPS_OTP_REQUEST_URL",
+      "name": "OTP Request",
+      "category": "otp",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/otp/request",
+      "summary": "Dispatch a one-time PIN by SMS so a web or app user can be registered from a plain mobile number.",
+      "reference": "references/04-subscription.md",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID as received when provisioned."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password as received when provisioned."
+        },
+        {
+          "name": "subscriberId",
+          "type": "string",
+          "required": true,
+          "description": "tel:-prefixed mobile number the user typed."
+        },
+        {
+          "name": "applicationHash",
+          "type": "string",
+          "required": false,
+          "description": "The hash string identifying your app, so bdapps sends the verification message in the form your app can read (the Android SMS Retriever app hash). It is a per-application constant, not a per-request id."
+        },
+        {
+          "name": "applicationMetaData",
+          "type": "object",
+          "required": false,
+          "description": "client (MOBILEAPP | WebSite | DESKTOP), device, os, appCode (package name / store URL / page URL / download URL)."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "referenceNo",
+          "type": "string",
+          "description": "Pass to OTP Verify. Keep server-side, in the session — never send it to the client."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "API version."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_000375",
+        "password": "…",
+        "subscriberId": "tel:8801812345678",
+        "applicationHash": "abcdefgh",
+        "applicationMetaData": {
+          "client": "MOBILEAPP",
+          "device": "Samsung S10",
+          "os": "android8",
+          "appCode": "https://play.google.com/store/apps/details?id=com.example.app"
+        }
+      },
+      "sampleResponse": {
+        "statusCode": "S1000",
+        "statusDetail": "Success",
+        "referenceNo": "3b84346f63899a32ec742a676532ec74dffe4f5",
+        "version": "1.0"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1351"
+      ],
+      "rules": [
+        "Rate-limit per number AND per IP, or the app becomes an SMS-bombing tool at your expense.",
+        "One OTP is valid for 60 minutes.",
+        "Always call from a backend with a static IP."
+      ]
+    },
+    {
+      "id": "otp-verify",
+      "envVar": "BDAPPS_OTP_VERIFY_URL",
+      "name": "OTP Verify",
+      "category": "otp",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/otp/verify",
+      "summary": "Verify a PIN and receive the masked subscriberId to use with every other API.",
+      "reference": "references/04-subscription.md",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID as received when provisioned."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password as received when provisioned."
+        },
+        {
+          "name": "referenceNo",
+          "type": "string",
+          "required": true,
+          "description": "From the OTP Request response. Server-side only."
+        },
+        {
+          "name": "otp",
+          "type": "string",
+          "required": true,
+          "description": "The PIN the user entered."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "subscriberId",
+          "type": "string",
+          "description": "Masked subscriber identifier. Use this for SMS, Subscription and Charging from now on."
+        },
+        {
+          "name": "subscriptionStatus",
+          "type": "enum",
+          "description": "REGISTERED on success."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "API version."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_000375",
+        "password": "…",
+        "referenceNo": "3b84346f63899a32ec742a676532ec74dffe4f5",
+        "otp": "123564"
+      },
+      "sampleResponse": {
+        "statusCode": "S1000",
+        "statusDetail": "Success",
+        "subscriptionStatus": "REGISTERED",
+        "version": "1.0",
+        "subscriberId": "tel:hu3b84346f63899a32ec742a666503a02a4dffe4f5"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1850",
+        "E1851",
+        "E1852",
+        "E1853"
+      ],
+      "rules": [
+        "Maximum 3 attempts per OTP — enforce it on your side too.",
+        "Never log the OTP or the referenceNo.",
+        "Store the returned masked subscriberId as the user's bdapps identity."
+      ]
+    },
+    {
+      "id": "caas-direct-debit",
+      "envVar": "BDAPPS_CAAS_DEBIT_URL",
+      "name": "CaaS Direct Debit",
+      "aliases": [
+        "charge",
+        "debit",
+        "direct carrier billing"
+      ],
+      "category": "caas",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/caas/direct/debit",
+      "summary": "Charge a specific amount from a subscriber's mobile account. Moves real money.",
+      "reference": "references/05-caas.md",
+      "movesMoney": true,
+      "idempotencyKey": "externalTrxId",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID generated when provisioning."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password authenticating the application."
+        },
+        {
+          "name": "externalTrxId",
+          "type": "string",
+          "required": true,
+          "description": "Your transaction ID, mapping request to response. Max 32 characters. Persist BEFORE calling — it is the idempotency key."
+        },
+        {
+          "name": "subscriberId",
+          "type": "string",
+          "required": true,
+          "description": "MSISDN or hash key of the subscriber to charge."
+        },
+        {
+          "name": "paymentInstrumentName",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "MobileAccount"
+          ],
+          "description": "The payment instrument to charge or read. MobileAccount is the only value bdapps accepts. Omitting it fails the call."
+        },
+        {
+          "name": "amount",
+          "type": "string",
+          "required": true,
+          "description": "Amount to charge, sent as a string. Hold as a decimal type in your own code."
+        },
+        {
+          "name": "accountId",
+          "type": "string",
+          "required": false,
+          "description": "The account of the payment instrument. Optional; a single value per request."
+        },
+        {
+          "name": "currency",
+          "type": "string",
+          "required": false,
+          "description": "Currency of the amount. Only BDT is allowed."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "externalTrxId",
+          "type": "string",
+          "description": "Echo of your ID. Assert it matches what you sent."
+        },
+        {
+          "name": "internalTrxId",
+          "type": "string",
+          "description": "Payment gateway transaction ID. Persist it — support and reconciliation use this."
+        },
+        {
+          "name": "referenceId",
+          "type": "string",
+          "description": "8-digit number for the payment request, where an external charging menu is involved."
+        },
+        {
+          "name": "timeStamp",
+          "type": "string",
+          "description": "ISO-8601 date/time of the transaction."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_999999",
+        "password": "…",
+        "externalTrxId": "12345678901234567890123456789012",
+        "subscriberId": "tel:8801812345678",
+        "currency": "BDT",
+        "amount": "6.00",
+        "paymentInstrumentName": "MobileAccount"
+      },
+      "sampleResponse": {
+        "statusCode": "S1000",
+        "timeStamp": "2012-07-30T12:48:10-0400",
+        "statusDetail": "Success",
+        "externalTrxId": "12345678901234567890123456789012",
+        "internalTrxId": "321"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1308",
+        "E1328",
+        "E1329",
+        "E1330",
+        "E1336",
+        "E1337",
+        "E1370",
+        "E1371",
+        "E1372",
+        "E1373",
+        "E1376",
+        "E1378",
+        "E1379",
+        "E1380",
+        "E1382",
+        "E1404",
+        "E1405",
+        "E1406",
+        "E1605",
+        "E1606"
+      ],
+      "benignCodes": [
+        "E1379"
+      ],
+      "rules": [
+        "The amount must be pre-agreed and disclosed to the user before they subscribe.",
+        "Persist externalTrxId before the HTTP call, then update the row from the response.",
+        "Never retry with a fresh externalTrxId — a timeout does not mean the charge failed.",
+        "E1379 (already completed) is success. E1406 (user rejected) must never be retried.",
+        "Amount and currency come from server-side config, never from client input."
+      ]
+    },
+    {
+      "id": "caas-balance-query",
+      "envVar": "BDAPPS_CAAS_GET_BALANCE_URL",
+      "name": "CaaS Query Balance",
+      "category": "caas",
+      "direction": "outbound",
+      "method": "POST",
+      "path": "/caas/get/balance",
+      "summary": "Query a subscriber's remaining chargeable balance.",
+      "reference": "references/05-caas.md",
+      "requiresProvisioning": "Enable Query Balance Requests",
+      "parameters": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Application ID generated when provisioning."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Password authenticating the application."
+        },
+        {
+          "name": "subscriberId",
+          "type": "string",
+          "required": true,
+          "description": "MSISDN or username of the subscriber being queried. The official sample omits the tel: prefix here, unlike every other service; send it tel:-prefixed for consistency — that is what works in practice."
+        },
+        {
+          "name": "paymentInstrumentName",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "MobileAccount"
+          ],
+          "description": "The payment instrument to charge or read. MobileAccount is the only value bdapps accepts. Omitting it fails the call."
+        },
+        {
+          "name": "accountId",
+          "type": "string",
+          "required": false,
+          "description": "The account of the payment instrument. Optional; a single value per request."
+        },
+        {
+          "name": "currency",
+          "type": "string",
+          "required": false,
+          "description": "Currency of the amount. Only BDT is allowed."
+        }
+      ],
+      "responseFields": [
+        {
+          "name": "statusCode",
+          "type": "string",
+          "description": "S1000 on success."
+        },
+        {
+          "name": "statusDetail",
+          "type": "string",
+          "description": "Human-readable outcome."
+        },
+        {
+          "name": "chargeableBalance",
+          "type": "string",
+          "description": "Remaining balance (prepaid) or credit limit minus outstanding bill (postpaid). A string — parse as decimal."
+        },
+        {
+          "name": "accountType",
+          "type": "string",
+          "description": "Pre Paid / Post Paid."
+        },
+        {
+          "name": "accountStatus",
+          "type": "string",
+          "description": "Account status."
+        }
+      ],
+      "sampleRequest": {
+        "applicationId": "APP_999999",
+        "password": "…",
+        "subscriberId": "tel:8801812345678",
+        "accountId": "12345",
+        "currency": "BDT",
+        "paymentInstrumentName": "MobileAccount"
+      },
+      "sampleResponse": {
+        "chargeableBalance": "300.0",
+        "statusCode": "S1000",
+        "statusDetail": "Success",
+        "accountStatus": "Active",
+        "accountType": "Pre Paid"
+      },
+      "statusCodes": [
+        "S1000",
+        "E1303",
+        "E1313",
+        "E1309"
+      ],
+      "rules": [
+        "Requires the Enable Query Balance Requests toggle in CaaS provisioning.",
+        "Advisory only — the balance can change before the debit lands. Always handle E1378 on the debit anyway.",
+        "chargeableBalance is a string — parse as decimal, never compare a float for equality."
+      ]
+    }
+  ],
+  "callbacks": [
+    {
+      "id": "sms-mo",
+      "name": "MO SMS Receive",
+      "category": "sms",
+      "direction": "inbound",
+      "suggestedPath": "/api/bdapps/sms/mo",
+      "configuredIn": "SMS API settings",
+      "summary": "Fires when a subscriber texts your shortcode with your keyword.",
+      "reference": "references/02-sms.md",
+      "dedupeKey": "requestId",
+      "fields": [
+        {
+          "name": "version",
+          "type": "string",
+          "required": true,
+          "description": "API version."
+        },
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Your application ID — verify it matches."
+        },
+        {
+          "name": "sourceAddress",
+          "type": "string",
+          "required": true,
+          "description": "Sender address, masked if masking is enabled."
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true,
+          "description": "Message as sent by the user, including the keyword."
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "required": true,
+          "description": "Unique request identifier within bdapps."
+        },
+        {
+          "name": "encoding",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "0",
+            "240",
+            "245"
+          ],
+          "description": "0 Text / 240 Flash / 245 Binary (hex-encoded)."
+        }
+      ],
+      "samplePayload": {
+        "message": "my testing message",
+        "sourceAddress": "tel:8801812345678",
+        "requestId": "22607072011552911",
+        "encoding": "0",
+        "applicationId": "APP_000029",
+        "version": "1.0"
+      },
+      "rules": [
+        "Recognise STOP / UNSUB / OFF and honour them by calling Unregister.",
+        "Do not perform a destructive or chargeable action on the content of one MO SMS alone."
+      ]
+    },
+    {
+      "id": "sms-dlr",
+      "name": "SMS Delivery Status Report",
+      "category": "sms",
+      "direction": "inbound",
+      "suggestedPath": "/api/bdapps/sms/dlr",
+      "configuredIn": "SMS API settings",
+      "summary": "Final delivery state of an MT SMS sent with deliveryStatusRequest 1.",
+      "reference": "references/02-sms.md",
+      "dedupeKey": "requestId + deliveryStatus",
+      "fields": [
+        {
+          "name": "destinationAddress",
+          "type": "string",
+          "required": true,
+          "description": "Subscriber address."
+        },
+        {
+          "name": "timeStamp",
+          "type": "string",
+          "required": true,
+          "description": "Time of the delivery event. Arrives as 10 digits (yyMMddHHmm) or 14 (yyyyMMddHHmmss) — parse on length."
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "required": true,
+          "description": "Ties the report to the original send."
+        },
+        {
+          "name": "deliveryStatus",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "DELIVERED",
+            "EXPIRED",
+            "DELETED",
+            "UNDELIVERABLE",
+            "ACCEPTED",
+            "UNKNOWN",
+            "REJECTED",
+            "DELIVRD",
+            "UNDELIV",
+            "ACCEPTD",
+            "REJECTD"
+          ],
+          "description": "bdapps uses the long forms; the SMPP gateway uses the abbreviated ones. Accept both."
+        }
+      ],
+      "samplePayload": {
+        "destinationAddress": "tel:8801812345678",
+        "timeStamp": "20120113082110",
+        "requestId": "MSG_000111",
+        "deliveryStatus": "DELIVERED"
+      },
+      "rules": [
+        "ACCEPTED is not DELIVERED — it only means the network took the message.",
+        "Reports can arrive out of order, late, twice, or never."
+      ]
+    },
+    {
+      "id": "ussd-receive",
+      "name": "USSD Receive",
+      "category": "ussd",
+      "direction": "inbound",
+      "suggestedPath": "/api/bdapps/ussd",
+      "configuredIn": "USSD API settings",
+      "summary": "Fires when a subscriber dials your code or presses a key.",
+      "reference": "references/03-ussd.md",
+      "dedupeKey": "requestId",
+      "fields": [
+        {
+          "name": "version",
+          "type": "string",
+          "required": true,
+          "description": "API version."
+        },
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Your application ID."
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": true,
+          "description": "Session identifier — echo this back on every send."
+        },
+        {
+          "name": "ussdOperation",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "mo-init",
+            "mo-cont"
+          ],
+          "description": "mo-init starts a session, mo-cont is subsequent input."
+        },
+        {
+          "name": "sourceAddress",
+          "type": "string",
+          "required": true,
+          "description": "Sender address, possibly masked."
+        },
+        {
+          "name": "vlrAddress",
+          "type": "string",
+          "required": false,
+          "description": "VLR address of the sender."
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true,
+          "description": "What the user dialled or typed."
+        },
+        {
+          "name": "encoding",
+          "type": "string",
+          "required": true,
+          "description": "440 = plain ASCII."
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "required": true,
+          "description": "Unique request identifier within bdapps."
+        }
+      ],
+      "samplePayload": {
+        "message": "*141#",
+        "ussdOperation": "mo-init",
+        "requestId": "1330933229901",
+        "sessionId": "1330929317043",
+        "encoding": "440",
+        "sourceAddress": "tel:8801812345678",
+        "applicationId": "APP_000029",
+        "version": "1.0"
+      },
+      "rules": [
+        "The response body is only an acknowledgement — the screen the user sees comes from a separate POST /ussd/send.",
+        "Sessions time out in seconds. Acknowledge before doing any work."
+      ]
+    },
+    {
+      "id": "subscription-notification",
+      "name": "Subscription Notification",
+      "category": "subscription",
+      "direction": "inbound",
+      "suggestedPath": "/api/bdapps/subscription/notification",
+      "configuredIn": "Subscription API settings",
+      "summary": "Fires whenever a subscription changes, including changes you did not initiate.",
+      "reference": "references/04-subscription.md",
+      "dedupeKey": "subscriberId + status + timeStamp",
+      "fields": [
+        {
+          "name": "applicationId",
+          "type": "string",
+          "required": true,
+          "description": "Your application ID."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": true,
+          "description": "Your application password, echoed back by the platform. You may compare it in constant time as defence in depth, but never log it and never treat it as sufficient authentication on its own — the request is unauthenticated JSON from the public internet."
+        },
+        {
+          "name": "subscriberId",
+          "type": "string",
+          "required": true,
+          "description": "Subscriber address, possibly masked."
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "required": true,
+          "enum": [
+            "REGISTERED",
+            "UNREGISTERED"
+          ],
+          "description": "New subscription state."
+        },
+        {
+          "name": "frequency",
+          "type": "enum",
+          "required": true,
+          "description": "Charging frequency for the subscription.",
+          "enum": [
+            "daily",
+            "weekly",
+            "monthly",
+            "yearly"
+          ]
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "required": true,
+          "description": "API version."
+        },
+        {
+          "name": "timeStamp",
+          "type": "string",
+          "required": true,
+          "description": "When the change happened."
+        }
+      ],
+      "samplePayload": {
+        "timeStamp": "20120113082110",
+        "version": "1.0",
+        "applicationId": "APP_999999",
+        "password": "…",
+        "subscriberId": "tel:8801812345678",
+        "frequency": "monthly",
+        "status": "REGISTERED"
+      },
+      "rules": [
+        "This is the authoritative source of subscription state — consume it and keep a local mirror instead of polling getStatus.",
+        "The body carries your password. Redact it before the payload reaches a log, an error tracker or a queue."
+      ]
+    }
+  ],
+  "bdappsai": {
+    "name": "bdappsAI",
+    "summary": "bdapps's AI gateway. One OpenAI-shaped API in front of several model providers — chat completions across Claude, Gemini and GPT models, and image generation — billed against a bdapps token balance instead of a per-provider account.",
+    "portal": "https://developer.bdapps.com/bdappsai",
+    "docs": "https://dev.bdapps.com/API_Documentation/bdapps_tap_api.html",
+    "reference": "references/14-bdapps-ai.md",
+    "baseUrl": "https://developer.bdapps.com/bdappsai/api",
+    "differsFromTelco": [
+      "Credentials go in an Authorization HEADER, not in the JSON body. There is no applicationId and no password.",
+      "Failures come back as real HTTP status codes with an error object. There is no statusCode/S1000 envelope, so the telco branching rule is inverted here: on bdappsAI you DO check the HTTP status.",
+      "It is a separate product with a separate key and a separate balance. A bdapps application password will not authenticate a bdappsAI call, and a bdappsAI key will not authenticate an SMS send.",
+      "Nothing about it is Bangladesh-specific: there is no MSISDN, no tel: addressing, no operator and no subscriber.",
+      "Nothing about it is a callback. bdappsAI never calls you; there is no webhook to register."
+    ],
+    "auth": {
+      "type": "header",
+      "header": "Authorization",
+      "format": "app_<keyId>.<keyValue>",
+      "example": "Authorization: app_1dd4f39c.<keyValue>",
+      "envVar": "BDAPPSAI_API_KEY",
+      "note": "The whole value goes in the header verbatim, including the app_ prefix. It is not an OAuth bearer token: do not add the word Bearer, and do not base64-encode it. Generate and rotate the key in the bdappsAI portal.",
+      "issuedBy": "https://developer.bdapps.com/bdappsai"
+    },
+    "models": [
+      {
+        "id": "claude-sonnet-4-6",
+        "provider": "Anthropic",
+        "endpoint": "bdappsai-chat-completions",
+        "note": "Strongest general reasoning in the line-up. Use it where an answer's quality matters more than its latency — drafting, analysis, anything a subscriber reads."
+      },
+      {
+        "id": "gemini-3.1-pro-preview",
+        "provider": "Google",
+        "endpoint": "bdappsai-chat-completions",
+        "note": "Long-context reasoning. Use it for large documents and multi-step analysis. Preview: treat its availability and behaviour as less stable than the others."
+      },
+      {
+        "id": "gemini-3.1-flash-lite",
+        "provider": "Google",
+        "endpoint": "bdappsai-chat-completions",
+        "note": "Cheapest and fastest. Use it for classification, routing, short replies and anything on a USSD timer."
+      },
+      {
+        "id": "gpt-5-nano",
+        "provider": "OpenAI",
+        "endpoint": "bdappsai-chat-completions",
+        "note": "Small, fast and cheap with a newer base than gpt-4o-mini. A good default for high-volume short tasks."
+      },
+      {
+        "id": "gpt-4o-mini",
+        "provider": "OpenAI",
+        "endpoint": "bdappsai-chat-completions",
+        "note": "Low-cost general model. A sensible default for chat where cost matters more than depth."
+      },
+      {
+        "id": "gpt-image-1.5",
+        "provider": "OpenAI",
+        "endpoint": "bdappsai-image-generation",
+        "note": "The only image model. Returns base64, never a URL."
+      }
+    ],
+    "rateLimits": {
+      "window": "per minute",
+      "reset": "Rate limits reset every minute.",
+      "onExceed": "HTTP 429. Read the Retry-After header for the recommended wait, and back off exponentially with jitter rather than retrying immediately.",
+      "note": "Quota is enforced two ways — requests per minute and total token spend. They surface as different error codes (RATE_LIMIT_EXCEEDED and TOKEN_QUOTA_EXCEEDED) on the same 429, so read the code, not just the status."
+    },
+    "errorEnvelope": {
+      "shape": {
+        "error": {
+          "message": "Human-readable error message",
+          "type": "Error type or code",
+          "param": "Parameter name that caused the error (if applicable)",
+          "code": "Error code (for webhook errors)",
+          "additional_data": {
+            "key": "value"
+          }
+        }
+      },
+      "note": "Read error.code first — it is the machine-readable one. error.message is for your logs, not for your branching, and error.param names the offending field on a 400."
+    },
+    "services": [
+      {
+        "id": "bdappsai-chat-completions",
+        "family": "bdappsai",
+        "envVar": "BDAPPSAI_CHAT_COMPLETIONS_URL",
+        "name": "bdappsAI Chat Completions",
+        "aliases": [
+          "chat",
+          "llm",
+          "chat completions",
+          "bdappsai chat",
+          "completions"
+        ],
+        "category": "bdappsai",
+        "direction": "outbound",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "absoluteUrl": "https://developer.bdapps.com/bdappsai/api/v1/chat/completions",
+        "summary": "Generate a model response for a conversation. OpenAI Chat Completions shape, routed to Claude, Gemini or GPT by the model field.",
+        "reference": "references/14-bdapps-ai.md",
+        "spendsTokens": true,
+        "parameters": [
+          {
+            "name": "model",
+            "type": "enum",
+            "required": true,
+            "enum": [
+              "claude-sonnet-4-6",
+              "gemini-3.1-pro-preview",
+              "gemini-3.1-flash-lite",
+              "gpt-5-nano",
+              "gpt-4o-mini"
+            ],
+            "description": "Which model answers. Each has different capabilities, performance characteristics and price points, and a model your project is not configured for fails with INVALID_LLM_CONFIG."
+          },
+          {
+            "name": "messages",
+            "type": "object[]",
+            "required": true,
+            "description": "The conversation so far, oldest first. Each entry has a role (system, developer, user, assistant or tool) and content, which is either a string or an array of typed parts — text, image and audio parts are supported."
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "required": false,
+            "description": "Sampling temperature between 0 and 2. Higher values like 0.8 will make the output more random; lower values make it more focused and deterministic. Defaults to 1."
+          },
+          {
+            "name": "max_completion_tokens",
+            "type": "integer",
+            "required": false,
+            "description": "An upper bound for the number of tokens that can be generated. Set it on every call: it is the only hard ceiling on what one request can cost you."
+          },
+          {
+            "name": "tools",
+            "type": "object[]",
+            "required": false,
+            "description": "A list of tools the model may call. The model replies with tool_calls instead of content, and you send the results back as messages with role tool."
+          },
+          {
+            "name": "response_format",
+            "type": "object",
+            "required": false,
+            "description": "The format in which the model output should be returned, such as { \"type\": \"text\" } or a JSON schema. Use it instead of asking for JSON in the prompt and parsing hopefully."
+          },
+          {
+            "name": "service_tier",
+            "type": "string",
+            "required": false,
+            "description": "Specifies the processing type used for serving the request. Defaults to auto."
+          },
+          {
+            "name": "frequency_penalty",
+            "type": "number",
+            "required": false,
+            "description": "Between -2.0 and 2.0. Positive values penalise new tokens based on their existing frequency in the text so far, reducing verbatim repetition. Defaults to 0."
+          },
+          {
+            "name": "logprobs",
+            "type": "boolean",
+            "required": false,
+            "description": "Whether to return log probabilities of the output tokens or not. Defaults to false."
+          },
+          {
+            "name": "n",
+            "type": "integer",
+            "required": false,
+            "description": "How many chat completion choices to generate for each input message. Every choice is billed, so leave it at the default of 1 unless you genuinely use the alternatives."
+          },
+          {
+            "name": "presence_penalty",
+            "type": "number",
+            "required": false,
+            "description": "Between -2.0 and 2.0. Positive values penalise new tokens based on whether they appear in the text so far, pushing the model towards new topics. Defaults to 0."
+          },
+          {
+            "name": "prompt_cache_key",
+            "type": "string",
+            "required": false,
+            "description": "Groups requests that share a long identical prefix so the provider can cache it. Use a stable value per prompt template, never per user."
+          },
+          {
+            "name": "safety_identifier",
+            "type": "string",
+            "required": false,
+            "description": "A stable identifier used to help detect users violating usage policies. Send a hash of your own user id — never an MSISDN and never a subscriberId."
+          },
+          {
+            "name": "stop",
+            "type": "string|string[]",
+            "required": false,
+            "description": "Up to 4 sequences where the API will stop generating further tokens. Defaults to null."
+          },
+          {
+            "name": "store",
+            "type": "boolean",
+            "required": false,
+            "description": "Whether or not to store the output of this chat completion request. Defaults to false — leave it false for anything carrying subscriber data."
+          },
+          {
+            "name": "top_logprobs",
+            "type": "integer",
+            "required": false,
+            "description": "The number of most likely tokens to return at each token position, 0 to 20. Requires logprobs to be true."
+          },
+          {
+            "name": "top_p",
+            "type": "number",
+            "required": false,
+            "description": "An alternative to sampling with temperature, called nucleus sampling. Defaults to 1. Adjust this or temperature, not both."
+          }
+        ],
+        "responseFields": [
+          {
+            "name": "id",
+            "type": "string",
+            "description": "Identifier for this completion. Log it — it is what bdappsAI support traces a bad response by."
+          },
+          {
+            "name": "object",
+            "type": "string",
+            "description": "Always chat.completion."
+          },
+          {
+            "name": "created",
+            "type": "integer",
+            "description": "Unix timestamp of when the completion was created."
+          },
+          {
+            "name": "model",
+            "type": "string",
+            "description": "The model that actually answered. Check it rather than assuming your requested model was used."
+          },
+          {
+            "name": "choices",
+            "type": "object[]",
+            "description": "The generated alternatives, one per n. Each carries index, message, logprobs and finish_reason."
+          },
+          {
+            "name": "choices[].message",
+            "type": "object",
+            "description": "The assistant turn: role, content, refusal, annotations, and tool_calls when the model asked for a tool. Append it to your message history verbatim before the next turn."
+          },
+          {
+            "name": "choices[].finish_reason",
+            "type": "string",
+            "description": "Why generation stopped: stop is a complete answer, length means it hit max_completion_tokens and the content is truncated, tool_calls means the model wants a tool run. Branch on this — a truncated answer is not a failed request."
+          },
+          {
+            "name": "usage",
+            "type": "object",
+            "description": "Token accounting for this call: prompt_tokens, completion_tokens and total_tokens, plus cached and reasoning breakdowns. This is what draws down your balance, so record total_tokens per call."
+          },
+          {
+            "name": "service_tier",
+            "type": "string",
+            "description": "The processing tier that served the request."
+          }
+        ],
+        "sampleRequest": {
+          "model": "gpt-5-nano",
+          "messages": [
+            {
+              "role": "system",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "You are a concise assistant for a Bangladeshi mobile service. Answer in one short paragraph."
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Explain megapixels in a picture"
+                }
+              ]
+            }
+          ],
+          "response_format": {
+            "type": "text"
+          },
+          "max_completion_tokens": 300
+        },
+        "sampleResponse": {
+          "id": "chatcmpl-B9MBs8CjcvOU2jLn4n570S5qMJKcT",
+          "object": "chat.completion",
+          "created": 1741569952,
+          "model": "gpt-4o-mini",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Megapixels count the millions of pixels a photo contains…",
+                "refusal": null,
+                "annotations": []
+              },
+              "logprobs": null,
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 19,
+            "completion_tokens": 10,
+            "total_tokens": 29,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "service_tier": "default"
+        },
+        "errorCodes": [
+          "400",
+          "401",
+          "402",
+          "403",
+          "404",
+          "429",
+          "500",
+          "502",
+          "503",
+          "PROJECT_NOT_FOUND",
+          "PROJECT_INACTIVE",
+          "INVALID_LLM_CONFIG",
+          "RATE_LIMIT_EXCEEDED",
+          "TOKEN_QUOTA_EXCEEDED",
+          "INSUFFICIENT_BALANCE",
+          "FORWARDING_FAILED"
+        ],
+        "rules": [
+          "Call it from your backend only. The key is a bearer-equivalent secret with a spendable balance behind it; a browser or mobile app that holds it can drain the balance.",
+          "Always set max_completion_tokens. Without it a single runaway request can spend an unbounded share of your token balance.",
+          "Branch on the HTTP status here, unlike every telco endpoint in this catalog. There is no statusCode field and no S1000.",
+          "Check finish_reason before using the content. length means the answer is cut off mid-sentence.",
+          "Never put a raw MSISDN, a subscriberId or a bdapps password into a prompt, a safety_identifier or a prompt_cache_key. Prompts leave your trust boundary and reach a third-party model provider.",
+          "Retry only 429, 500, 502 and 503, with exponential backoff and jitter. A 400, 401, 402, 403 or 404 will fail identically forever.",
+          "Set an explicit client timeout well above your telco one — a large completion legitimately takes tens of seconds — and never make an LLM call inside a USSD callback's response path.",
+          "Treat model output as untrusted input: never execute it, never interpolate it into SQL or a shell, and never send it straight to a subscriber as an SMS without a length and content check."
+        ]
+      },
+      {
+        "id": "bdappsai-image-generation",
+        "family": "bdappsai",
+        "envVar": "BDAPPSAI_IMAGE_GENERATIONS_URL",
+        "name": "bdappsAI Image Generation",
+        "aliases": [
+          "image",
+          "images",
+          "image generation",
+          "bdappsai image",
+          "generate image"
+        ],
+        "category": "bdappsai",
+        "direction": "outbound",
+        "method": "POST",
+        "path": "/v1/images/generations",
+        "absoluteUrl": "https://developer.bdapps.com/bdappsai/api/v1/images/generations",
+        "summary": "Create an image from a text prompt. GPT Image 1.5 only, and the image comes back as base64 in the response body rather than as a URL.",
+        "reference": "references/14-bdapps-ai.md",
+        "spendsTokens": true,
+        "parameters": [
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "description": "A text description of the desired image(s). The maximum length is 32000 characters for GPT Image 1.5."
+          },
+          {
+            "name": "model",
+            "type": "string",
+            "required": false,
+            "description": "The image model to use. gpt-image-1.5 is the only one available and the default."
+          },
+          {
+            "name": "background",
+            "type": "enum",
+            "required": false,
+            "enum": [
+              "transparent",
+              "opaque",
+              "auto"
+            ],
+            "description": "Background treatment. transparent requires an output_format of png or webp — it is silently useless with jpeg. Defaults to auto."
+          },
+          {
+            "name": "moderation",
+            "type": "enum",
+            "required": false,
+            "enum": [
+              "low",
+              "auto"
+            ],
+            "description": "Content-moderation strictness for the generated image. Defaults to auto."
+          },
+          {
+            "name": "n",
+            "type": "integer",
+            "required": false,
+            "description": "How many images to generate, 1 to 10. Every image is billed separately. Defaults to 1."
+          },
+          {
+            "name": "output_compression",
+            "type": "integer",
+            "required": false,
+            "description": "Compression level from 0 to 100 for the webp and jpeg output formats. Ignored for png. Defaults to 100."
+          },
+          {
+            "name": "output_format",
+            "type": "enum",
+            "required": false,
+            "enum": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "description": "The encoding of the returned image. Defaults to png."
+          },
+          {
+            "name": "quality",
+            "type": "enum",
+            "required": false,
+            "enum": [
+              "auto",
+              "high",
+              "medium",
+              "low"
+            ],
+            "description": "Rendering quality. This is the main cost and latency lever — low is dramatically cheaper and faster than high. Defaults to auto."
+          },
+          {
+            "name": "size",
+            "type": "enum",
+            "required": false,
+            "enum": [
+              "1024x1024",
+              "1536x1024",
+              "1024x1536",
+              "auto"
+            ],
+            "description": "Dimensions of the generated image: square, landscape, portrait, or auto to let the model choose. Defaults to auto."
+          },
+          {
+            "name": "partial_images",
+            "type": "integer",
+            "required": false,
+            "description": "Number of partial images, 0 to 3, to emit while generating. Only meaningful with stream set to true. Defaults to 0."
+          },
+          {
+            "name": "stream",
+            "type": "boolean",
+            "required": false,
+            "description": "Generate the image in streaming mode, emitting partial images as server-sent events. Defaults to false."
+          },
+          {
+            "name": "style",
+            "type": "enum",
+            "required": false,
+            "enum": [
+              "vivid",
+              "natural"
+            ],
+            "description": "Rendering style — vivid is more dramatic and saturated, natural is more literal. Defaults to vivid."
+          },
+          {
+            "name": "user",
+            "type": "string",
+            "required": false,
+            "description": "A unique identifier representing your end-user, used for abuse monitoring. Send an opaque internal id, never an MSISDN."
+          }
+        ],
+        "responseFields": [
+          {
+            "name": "created",
+            "type": "integer",
+            "description": "Unix timestamp of when the image was created."
+          },
+          {
+            "name": "data",
+            "type": "object[]",
+            "description": "One entry per generated image. Each carries b64_json — the image bytes, base64-encoded. GPT Image 1.5 always returns base64, never a URL, so decode and store it yourself."
+          },
+          {
+            "name": "background",
+            "type": "string",
+            "description": "The background treatment actually applied."
+          },
+          {
+            "name": "output_format",
+            "type": "string",
+            "description": "The encoding of the returned bytes — use it to pick the file extension and the Content-Type when you store or serve the image."
+          },
+          {
+            "name": "quality",
+            "type": "string",
+            "description": "The quality level actually used, which is the resolved value when you sent auto."
+          },
+          {
+            "name": "size",
+            "type": "string",
+            "description": "The dimensions actually produced, which is the resolved value when you sent auto."
+          },
+          {
+            "name": "usage",
+            "type": "object",
+            "description": "Token accounting: input_tokens with a text/image breakdown, output_tokens and total_tokens. Image output tokens dwarf the prompt, so quality and n drive the cost, not prompt length."
+          }
+        ],
+        "sampleRequest": {
+          "model": "gpt-image-1.5",
+          "prompt": "a red apple on a plain background",
+          "n": 1,
+          "size": "1024x1024",
+          "quality": "low"
+        },
+        "sampleResponse": {
+          "created": 1767763326,
+          "background": "opaque",
+          "data": [
+            {
+              "b64_json": "<base64-encoded image bytes>"
+            }
+          ],
+          "output_format": "png",
+          "quality": "low",
+          "size": "1024x1024",
+          "usage": {
+            "input_tokens": 9,
+            "input_tokens_details": {
+              "image_tokens": 0,
+              "text_tokens": 9
+            },
+            "output_tokens": 272,
+            "total_tokens": 281
+          }
+        },
+        "errorCodes": [
+          "400",
+          "401",
+          "402",
+          "403",
+          "404",
+          "429",
+          "500",
+          "502",
+          "503",
+          "PROJECT_NOT_FOUND",
+          "PROJECT_INACTIVE",
+          "RATE_LIMIT_EXCEEDED",
+          "TOKEN_QUOTA_EXCEEDED",
+          "INSUFFICIENT_BALANCE",
+          "FORWARDING_FAILED"
+        ],
+        "rules": [
+          "The response is base64, not a URL. Never log the body, never store it in a database text column, and never return it through a JSON API — decode it once and put the bytes in object storage.",
+          "Generation is slow. Do it in a background job and hand the user a job id, never inside a request the user is waiting on and never inside a callback handler.",
+          "quality and n set the price. Default to low for previews and thumbnails, and only spend high where the image is the product.",
+          "Cache by a hash of the resolved prompt plus every parameter. The same prompt costs the same again every time you ask.",
+          "transparent backgrounds need output_format png or webp; with jpeg the setting is quietly discarded.",
+          "Never send subscriber-identifying text in a prompt or in user."
+        ]
+      }
+    ],
+    "errors": {
+      "400": {
+        "http": 400,
+        "class": "client",
+        "description": "Bad request — invalid request format or a malformed payload. Common causes are invalid JSON, missing required fields and invalid parameter values.",
+        "fix": "Read error.param: it names the offending field. Validate the payload before sending rather than after failing."
+      },
+      "401": {
+        "http": 401,
+        "class": "configuration",
+        "description": "Unauthorized. Your API key is either missing, invalid, or expired.",
+        "fix": "Send the key verbatim as Authorization: app_<keyId>.<keyValue>. Do not prepend Bearer, do not base64-encode it, and check the value actually reached the process rather than being an empty environment variable."
+      },
+      "402": {
+        "http": 402,
+        "class": "configuration",
+        "description": "Payment required — insufficient token balance.",
+        "fix": "Top up the balance in the bdappsAI portal. Alert on this: it stops every AI call in the product, not one request."
+      },
+      "403": {
+        "http": 403,
+        "class": "configuration",
+        "description": "Forbidden — insufficient permissions, or the model you asked for is restricted for your project.",
+        "fix": "Check the project is ACTIVE and the model is enabled for it in the bdappsAI portal."
+      },
+      "404": {
+        "http": 404,
+        "class": "configuration",
+        "description": "Not found — no project matches the API key you sent.",
+        "fix": "Verify the key is a complete keyId.keyValue pair and belongs to the project you think it does. A truncated key looks exactly like a wrong one."
+      },
+      "429": {
+        "http": 429,
+        "class": "transient",
+        "description": "Too many requests — rate limit exceeded, or the token quota is exhausted. Please wait before making additional requests.",
+        "fix": "Read the Retry-After header and back off exponentially with jitter. Check error.code: RATE_LIMIT_EXCEEDED clears on its own, TOKEN_QUOTA_EXCEEDED does not."
+      },
+      "500": {
+        "http": 500,
+        "class": "transient",
+        "description": "Internal server error — an unexpected error on the bdappsAI side. Their team is automatically notified of server errors.",
+        "fix": "Retry with backoff, cap the attempts, then dead-letter and surface a degraded experience rather than hanging."
+      },
+      "502": {
+        "http": 502,
+        "class": "transient",
+        "description": "Bad gateway — bdappsAI failed to forward the request to the upstream LLM provider, usually provider downtime or connectivity.",
+        "fix": "Retry with backoff, and consider failing over to another model: a 502 is usually one provider being down, not bdappsAI."
+      },
+      "503": {
+        "http": 503,
+        "class": "transient",
+        "description": "Service unavailable — temporarily down for maintenance or under high load.",
+        "fix": "Retry with backoff. Check the provider status pages before escalating."
+      },
+      "PROJECT_NOT_FOUND": {
+        "http": 404,
+        "class": "configuration",
+        "description": "Project not found with API key. The provided API key doesn't match any existing project.",
+        "fix": "Regenerate the key in the bdappsAI portal and confirm both halves of keyId.keyValue were copied."
+      },
+      "PROJECT_INACTIVE": {
+        "http": 403,
+        "class": "configuration",
+        "description": "Project is not active. The project exists but its status is not ACTIVE.",
+        "fix": "Activate the project in the bdappsAI portal. No code change will help."
+      },
+      "INVALID_LLM_CONFIG": {
+        "http": 400,
+        "class": "configuration",
+        "description": "Invalid LLM model. The specified model is not configured or allowed for your project.",
+        "fix": "Use a model enabled for the project. This is the bdappsAI equivalent of E1309 — provisioning, not payload."
+      },
+      "RATE_LIMIT_EXCEEDED": {
+        "http": 429,
+        "class": "transient",
+        "description": "Rate limit exceeded. Your project has exceeded the allowed number of requests per time period.",
+        "fix": "Back off and retry; limits reset every minute. Queue bursts rather than firing them in parallel."
+      },
+      "TOKEN_QUOTA_EXCEEDED": {
+        "http": 429,
+        "class": "configuration",
+        "description": "Token quota exceeded. Your project has used up its allocated token quota.",
+        "fix": "Retrying will not clear this. Raise the quota or top up in the portal, and alert rather than looping."
+      },
+      "INSUFFICIENT_BALANCE": {
+        "http": 402,
+        "class": "configuration",
+        "description": "Insufficient token balance. Your current balance is too low to process the request.",
+        "fix": "Top up in the bdappsAI portal. Monitor the balance proactively so this never fires in production."
+      },
+      "FORWARDING_FAILED": {
+        "http": 502,
+        "class": "transient",
+        "description": "Failed to forward the request. The call to the upstream LLM provider failed due to connectivity or provider issues.",
+        "fix": "Retry with backoff, or fail over to a model from a different provider."
+      }
+    },
+    "statusPages": {
+      "OpenAI": "https://status.openai.com/",
+      "Claude": "https://status.claude.com/",
+      "Gemini": "https://aistudio.google.com/status"
+    },
+    "practices": [
+      {
+        "id": "bdappsai-key-is-a-spend-key",
+        "severity": "critical",
+        "title": "Treat the bdappsAI key like a payment key",
+        "detail": "It draws down a real token balance. Backend only, environment variable only, never in a client bundle, never in a log line, never in a committed file. Rotate it in the bdappsAI portal the moment it is exposed.",
+        "reference": "references/14-bdapps-ai.md"
+      },
+      {
+        "id": "bdappsai-cap-spend-per-call",
+        "severity": "high",
+        "title": "Put a ceiling on every AI call",
+        "detail": "Set max_completion_tokens on every chat call and keep n at 1; keep image quality low and n at 1 unless the image is the product. Without a per-call ceiling one loop can exhaust the balance and take every AI feature down with a 402.",
+        "reference": "references/14-bdapps-ai.md"
+      },
+      {
+        "id": "bdappsai-no-pii-in-prompts",
+        "severity": "critical",
+        "title": "Never put subscriber identity in a prompt",
+        "detail": "Prompts leave your trust boundary and reach a third-party model provider. No MSISDN, no subscriberId (masked or not), no bdapps password, no OTP. Redact before the call, and keep store false.",
+        "reference": "references/14-bdapps-ai.md"
+      },
+      {
+        "id": "bdappsai-http-status-branching",
+        "severity": "high",
+        "title": "Branch on the HTTP status for bdappsAI, on statusCode for telco",
+        "detail": "bdappsAI returns real HTTP status codes with an error object and no statusCode field; the telco APIs return HTTP 200 with statusCode. One shared HTTP helper that assumes either convention is wrong for half your calls. Keep the two clients separate.",
+        "reference": "references/14-bdapps-ai.md"
+      },
+      {
+        "id": "bdappsai-never-in-a-callback-path",
+        "severity": "high",
+        "title": "Never call a model inside a callback response path",
+        "detail": "USSD sessions time out in seconds and bdapps expects S1000 immediately. Acknowledge the callback first, generate out of band, then deliver the answer by SMS or on the next USSD screen.",
+        "reference": "references/14-bdapps-ai.md"
+      },
+      {
+        "id": "bdappsai-output-is-untrusted",
+        "severity": "high",
+        "title": "Treat model output as untrusted input",
+        "detail": "Never execute it, never interpolate it into SQL or a shell, and never forward it to a subscriber unchecked. An SMS built from a model response still costs money per part and still represents your brand.",
+        "reference": "references/14-bdapps-ai.md"
+      }
+    ]
+  },
+  "statusCodeClasses": {
+    "success": {
+      "retry": false,
+      "action": "Proceed."
+    },
+    "configuration": {
+      "retry": false,
+      "action": "Provisioning or credentials are wrong. Fix the portal — code changes will not help. Alert on these in production; the integration is down, not one request."
+    },
+    "client": {
+      "retry": false,
+      "action": "Your payload is wrong, or the user gave bad input. Fix the request or prompt the user."
+    },
+    "user-state": {
+      "retry": "after-user-action",
+      "action": "The user is not eligible right now. Communicate; do not retry in a loop."
+    },
+    "transient": {
+      "retry": true,
+      "action": "Platform-side. Exponential backoff with jitter, capped attempts, then dead-letter."
+    }
+  },
+  "statusCodes": {
+    "S1000": {
+      "class": "success",
+      "description": "Success"
+    },
+    "E1301": {
+      "class": "configuration",
+      "description": "Requested ApplicationID is not allowed within the System"
+    },
+    "E1302": {
+      "class": "configuration",
+      "description": "Requested SP is not allowed within the System"
+    },
+    "E1303": {
+      "class": "configuration",
+      "description": "IP address, which the request originates from, is not listed within the allowed-host-address list",
+      "fix": "Run curl -4 https://api.ipify.org on the calling server and add that IP to Allowed Host Addresses."
+    },
+    "E1304": {
+      "class": "configuration",
+      "description": "Requested Application is not found within the System"
+    },
+    "E1305": {
+      "class": "configuration",
+      "description": "Requested ApplicationID is invalid"
+    },
+    "E1306": {
+      "class": "configuration",
+      "description": "Routing Key (shortcode/keyword) for the NCS service is invalid"
+    },
+    "E1307": {
+      "class": "configuration",
+      "description": "Requested SP is not found within the System"
+    },
+    "E1308": {
+      "class": "client",
+      "description": "Error during the charging operation"
+    },
+    "E1309": {
+      "class": "configuration",
+      "description": "Requested service is not allowed for this Application",
+      "fix": "That API was not provisioned for this app."
+    },
+    "E1310": {
+      "class": "configuration",
+      "description": "MO flow is not allowed for this Application"
+    },
+    "E1311": {
+      "class": "configuration",
+      "description": "MT flow is not allowed for this Application"
+    },
+    "E1312": {
+      "class": "client",
+      "description": "Invalid request"
+    },
+    "E1313": {
+      "class": "configuration",
+      "description": "Authentication failure. There is no active application, or no active service provider, or the given password in the request is invalid.",
+      "fix": "Check BDAPPS_APP_ID and BDAPPS_PASSWORD, and that the app is active."
+    },
+    "E1315": {
+      "class": "configuration",
+      "description": "Requested NCS service is not available"
+    },
+    "E1316": {
+      "class": "transient",
+      "description": "Sorry, the {0} application is temporarily unavailable. Please try again later."
+    },
+    "E1317": {
+      "class": "user-state",
+      "description": "MSISDN in the request is in an invalid state (may be blocked, or have an invalid number of digits)"
+    },
+    "E1318": {
+      "class": "transient",
+      "description": "Sorry, the {0} application is temporarily unavailable. Please try again later."
+    },
+    "E1319": {
+      "class": "transient",
+      "description": "Sorry, the {0} application is temporarily unavailable. Please try again later."
+    },
+    "E1322": {
+      "class": "configuration",
+      "description": "Requested sender is not allowed"
+    },
+    "E1323": {
+      "class": "configuration",
+      "description": "Requested recipients not allowed"
+    },
+    "E1324": {
+      "class": "configuration",
+      "description": "Subscription via HTTP is not allowed"
+    },
+    "E1325": {
+      "class": "client",
+      "description": "Format of the address is invalid",
+      "fix": "Missing tel: prefix, or a + / space slipped in."
+    },
+    "E1326": {
+      "class": "user-state",
+      "description": "Sorry, your SMS sent to {0} application could not be processed. Please check if you have sufficient balance and try again."
+    },
+    "E1327": {
+      "class": "configuration",
+      "description": "App id not allowed in pgw"
+    },
+    "E1328": {
+      "class": "configuration",
+      "description": "Charging operation not allowed. Please check the NCS configuration."
+    },
+    "E1329": {
+      "class": "configuration",
+      "description": "Charging amount too high. Please check the NCS configuration."
+    },
+    "E1330": {
+      "class": "configuration",
+      "description": "Charging amount too low. Please check the NCS configuration."
+    },
+    "E1331": {
+      "class": "configuration",
+      "description": "Sorry, invalid/unauthorized source address. Please check the availability of default sender address or aliases for SMS-MT in {0} application.",
+      "fix": "sourceAddress must be a provisioned alias."
+    },
+    "E1332": {
+      "class": "transient",
+      "description": "Delivery failed"
+    },
+    "E1333": {
+      "class": "user-state",
+      "description": "Message contains suspected abusive content, or subscriber base is larger than the limit; will be stored for admin approval"
+    },
+    "E1334": {
+      "class": "client",
+      "description": "Message length is too long. Maximum message length is {0}"
+    },
+    "E1335": {
+      "class": "client",
+      "description": "Message length is too long. Maximum message length for advertisement messages is {0}"
+    },
+    "E1336": {
+      "class": "configuration",
+      "description": "No matching service code found for the charging amount"
+    },
+    "E1337": {
+      "class": "user-state",
+      "description": "Subscriber authentication by charging gateway failed"
+    },
+    "E1340": {
+      "class": "client",
+      "description": "Invalid request - {0}"
+    },
+    "E1341": {
+      "class": "transient",
+      "description": "Delivery failed. Errors occurred while sending the request for the intended destinations"
+    },
+    "E1342": {
+      "class": "user-state",
+      "description": "Sorry, your phone number is blacklisted to use this application {0}"
+    },
+    "E1343": {
+      "class": "user-state",
+      "description": "Non-whitelisted mobile number accessing services of application {0}",
+      "fix": "In Limited Production, only numbers in Whitelisted Numbers can use the app."
+    },
+    "E1344": {
+      "class": "user-state",
+      "description": "Sorry, your SMS sent to {0} application could not be processed. Please check if you have sufficient balance and try again."
+    },
+    "E1351": {
+      "class": "user-state",
+      "description": "User already registered",
+      "benignFor": [
+        "subscription-register"
+      ]
+    },
+    "E1356": {
+      "class": "user-state",
+      "description": "User not registered",
+      "benignFor": [
+        "subscription-unregister"
+      ]
+    },
+    "E1357": {
+      "class": "user-state",
+      "description": "Sorry, you are unauthorised to use the {0} application."
+    },
+    "E1360": {
+      "class": "transient",
+      "description": "Error response from SDP-SBL"
+    },
+    "E1361": {
+      "class": "client",
+      "description": "Message rejected by SDP-SBL"
+    },
+    "E1362": {
+      "class": "client",
+      "description": "Invalid request"
+    },
+    "E1363": {
+      "class": "transient",
+      "description": "No response / response delayed from SDP-SBL"
+    },
+    "E1364": {
+      "class": "transient",
+      "description": "Could not send the message to SDP-SBL"
+    },
+    "E1365": {
+      "class": "user-state",
+      "description": "Subscriber is not registered to use this application"
+    },
+    "E1366": {
+      "class": "transient",
+      "description": "MT delivery failed"
+    },
+    "E1367": {
+      "class": "client",
+      "description": "Request QoS not supported",
+      "fix": "You requested a quality-of-service level above what the application was provisioned for. Lower the request or ask support to widen the provisioning."
+    },
+    "E1368": {
+      "class": "client",
+      "description": "Requested ServiceType not supported"
+    },
+    "E1370": {
+      "class": "client",
+      "description": "Invalid reservation Id"
+    },
+    "E1371": {
+      "class": "configuration",
+      "description": "App does not accept payments from the given Payment Instrument"
+    },
+    "E1372": {
+      "class": "user-state",
+      "description": "Default payment instrument for the user not found"
+    },
+    "E1373": {
+      "class": "user-state",
+      "description": "Invalid payer account"
+    },
+    "E1374": {
+      "class": "client",
+      "description": "Invalid payee account"
+    },
+    "E1375": {
+      "class": "client",
+      "description": "Transfer between two different payment instruments is not allowed"
+    },
+    "E1376": {
+      "class": "client",
+      "description": "Unknown charging error",
+      "fix": "Escalate to support with the externalTrxId."
+    },
+    "E1377": {
+      "class": "client",
+      "description": "Invalid payment instrument name"
+    },
+    "E1378": {
+      "class": "user-state",
+      "description": "Insufficient balance",
+      "fix": "Tell the user; retry later, not immediately."
+    },
+    "E1379": {
+      "class": "success",
+      "description": "Transaction has already completed",
+      "benignFor": [
+        "caas-direct-debit"
+      ],
+      "fix": "Your idempotency key worked. Treat as success — do NOT charge again."
+    },
+    "E1380": {
+      "class": "client",
+      "description": "Transaction currency not supported"
+    },
+    "E1381": {
+      "class": "configuration",
+      "description": "IP address, which the request originates from, is not allowed to access this service"
+    },
+    "E1382": {
+      "class": "user-state",
+      "description": "Payment Instrument is not allowed to perform transactions"
+    },
+    "E1383": {
+      "class": "configuration",
+      "description": "USSD network initiated flow not allowed"
+    },
+    "E1384": {
+      "class": "configuration",
+      "description": "International SMS sending is disabled"
+    },
+    "E1387": {
+      "class": "configuration",
+      "description": "NCS SLA configured Merchant ID not found in DB"
+    },
+    "E1400": {
+      "class": "transient",
+      "description": "Card Management Module Unavailable"
+    },
+    "E1401": {
+      "class": "client",
+      "description": "Invalid NFC Token"
+    },
+    "E1402": {
+      "class": "client",
+      "description": "NFC Token does not match with request"
+    },
+    "E1404": {
+      "class": "client",
+      "description": "Charging Failed"
+    },
+    "E1405": {
+      "class": "user-state",
+      "description": "Charging Authorization Timed out",
+      "fix": "The user did not confirm in time."
+    },
+    "E1406": {
+      "class": "user-state",
+      "description": "Charging Authorization Rejected",
+      "fix": "The user declined. Never retry."
+    },
+    "E1600": {
+      "class": "transient",
+      "description": "Sorry, the {0} application is temporarily unavailable. Please try again later."
+    },
+    "E1601": {
+      "class": "transient",
+      "description": "An unexpected error has occurred"
+    },
+    "E1602": {
+      "class": "transient",
+      "description": "Message delivery failed"
+    },
+    "E1603": {
+      "class": "transient",
+      "description": "Temporary System Error occurred while delivering your request"
+    },
+    "E1605": {
+      "class": "client",
+      "description": "Invalid charging request"
+    },
+    "E1606": {
+      "class": "client",
+      "description": "Invalid charging amount"
+    },
+    "E1825": {
+      "class": "client",
+      "description": "Unsupported operation"
+    },
+    "E1830": {
+      "class": "user-state",
+      "description": "This service is not available for {0} users"
+    },
+    "E1850": {
+      "class": "client",
+      "description": "Invalid OTP",
+      "fix": "Maximum 3 attempts per OTP."
+    },
+    "E1851": {
+      "class": "client",
+      "description": "OTP request has expired",
+      "fix": "OTPs are valid for 60 minutes."
+    },
+    "E1852": {
+      "class": "client",
+      "description": "Maximum number of OTP attempts reached"
+    },
+    "E1853": {
+      "class": "client",
+      "description": "No active OTP request found for this reference number"
+    }
+  },
+  "practices": [
+    {
+      "id": "no-hardcoded-credentials",
+      "severity": "critical",
+      "title": "Never hardcode applicationId or password",
+      "detail": "Environment variables only, through one config module, validated at startup. Not in source, not in a client bundle, not in a committed file, not in a log, not in git history. Never prefixed NEXT_PUBLIC_ / VITE_ / REACT_APP_.",
+      "reference": "references/09-security-best-practices.md"
+    },
+    {
+      "id": "backend-only",
+      "severity": "critical",
+      "title": "Never call bdapps from client-side code",
+      "detail": "Clients call your backend; your backend calls bdapps. Credentials are a shared secret and the platform enforces IP whitelisting, which a mobile client cannot satisfy.",
+      "reference": "references/09-security-best-practices.md"
+    },
+    {
+      "id": "consent",
+      "severity": "critical",
+      "title": "Explicit consent before register or charge",
+      "detail": "Record who consented, when, through which channel, and the exact wording shown. Disclose amount, currency and frequency first. bdapps suspends applications over this.",
+      "reference": "references/09-security-best-practices.md"
+    },
+    {
+      "id": "idempotent-charging",
+      "severity": "critical",
+      "title": "Charging must be idempotent",
+      "detail": "One externalTrxId per logical charge, persisted before the call, reused on retry. Never re-roll it — that double-charges a real person.",
+      "reference": "references/05-caas.md"
+    },
+    {
+      "id": "status-code-branching",
+      "severity": "critical",
+      "title": "Branch on statusCode, not the HTTP status",
+      "detail": "bdapps returns HTTP 200 for application-level failures. Checking res.ok reports failures as successes.",
+      "reference": "references/08-status-codes.md"
+    },
+    {
+      "id": "opaque-subscriber-id",
+      "severity": "high",
+      "title": "Treat subscriberId as opaque",
+      "detail": "With masking enabled it is a hash, not a phone number. Do not parse it, strip it, or assume a length. Store and send back exactly what you received.",
+      "reference": "references/09-security-best-practices.md"
+    },
+    {
+      "id": "tls-verification",
+      "severity": "high",
+      "title": "Never ship rejectUnauthorized: false",
+      "detail": "Some hosts serve an incomplete certificate chain. Supply the missing intermediate CA explicitly; disabling verification exposes the credentials that can charge your subscribers.",
+      "reference": "references/09-security-best-practices.md"
+    },
+    {
+      "id": "callback-ack-first",
+      "severity": "high",
+      "title": "Acknowledge callbacks before doing work",
+      "detail": "Respond S1000 immediately, then process asynchronously. USSD sessions time out in seconds; slow handlers cause retries, duplicates and dropped sessions.",
+      "reference": "references/07-callbacks.md"
+    },
+    {
+      "id": "callback-idempotency",
+      "severity": "high",
+      "title": "Every callback handler must be idempotent",
+      "detail": "All four callbacks can arrive more than once. Deduplicate on the documented key. A duplicate subscription notification that flips a user's state twice, or a duplicate MO that answers a command twice, is a real bug.",
+      "reference": "references/07-callbacks.md"
+    },
+    {
+      "id": "callback-untrusted",
+      "severity": "high",
+      "title": "Never trust the callback body",
+      "detail": "It is unauthenticated JSON from the public internet. Validate the schema, verify applicationId, restrict by source IP, rate-limit, and never treat a callback as authorisation.",
+      "reference": "references/07-callbacks.md"
+    },
+    {
+      "id": "static-egress-ip",
+      "severity": "high",
+      "title": "A static egress IP is a hard requirement",
+      "detail": "IP whitelisting is enforced with E1303. Serverless platforms with rotating egress need a NAT gateway or fixed-IP proxy. Decide before choosing a host.",
+      "reference": "references/01-getting-started.md"
+    },
+    {
+      "id": "broadcast-guard",
+      "severity": "high",
+      "title": "Guard tel:all",
+      "detail": "A broadcast to the entire subscriber base must never be reachable from an ordinary code path. Require an explicit, separately-authorised call and sanity-check against Query Base first.",
+      "reference": "references/02-sms.md"
+    },
+    {
+      "id": "ussd-session-store",
+      "severity": "medium",
+      "title": "USSD session state must be shared across instances",
+      "detail": "An in-process Map breaks the moment you scale horizontally or deploy. Use Redis or equivalent, with a ~2 minute TTL.",
+      "reference": "references/03-ussd.md"
+    },
+    {
+      "id": "no-secret-logging",
+      "severity": "medium",
+      "title": "Never log secrets or unmasked subscriber data",
+      "detail": "Log requestId, sessionId, externalTrxId and statusCode. Never the password, OTP, referenceNo, or an unmasked subscriberId. Mask in the logger, not at each call site.",
+      "reference": "references/09-security-best-practices.md"
+    },
+    {
+      "id": "explicit-timeouts",
+      "severity": "medium",
+      "title": "Set an explicit timeout on every call",
+      "detail": "10-15 seconds. No default-infinite requests.",
+      "reference": "references/09-security-best-practices.md"
+    },
+    {
+      "id": "retry-discipline",
+      "severity": "medium",
+      "title": "Retry only transient codes and transport errors",
+      "detail": "Exponential backoff with jitter, capped attempts, then dead-letter. Never retry a definitive E13xx, and never retry a debit with a new externalTrxId.",
+      "reference": "references/08-status-codes.md"
+    },
+    {
+      "id": "local-subscription-mirror",
+      "severity": "medium",
+      "title": "Mirror subscription state locally",
+      "detail": "Consume the subscription notification instead of calling getStatus on every request.",
+      "reference": "references/04-subscription.md"
+    },
+    {
+      "id": "decimal-money",
+      "severity": "medium",
+      "title": "Use a decimal type for money",
+      "detail": "Never a binary float. Amount and currency come from server-side config or a server-side price lookup, never from client input.",
+      "reference": "references/05-caas.md"
+    }
+  ],
+  "chargingSdk": {
+    "name": "Subscription Charging SDK",
+    "summary": "A signed browser redirect to a bdapps-hosted consent page. bdapps captures the subscriber's number, shows the amount and frequency, records consent, and activates the subscription and its charging — then returns the browser to a URL you nominate. It is not a library you install.",
+    "docs": "https://dev.bdapps.com/consent.php",
+    "reference": "references/06-otp.md",
+    "authorizeUrl": "https://user.bdapps.com/sdk/subscription/authorize",
+    "method": "GET (browser redirect)",
+    "enablement": [
+      "Sign in at https://user.bdapps.com and create a bdapps Pro application.",
+      "Provision the APIs you need — SMS and Subscription are both required for the SDK flow.",
+      "General → Advanced shows 'Enable Charging SDK', off by default and not switchable from the portal.",
+      "Email support@bdapps.com to have it enabled on that application.",
+      "Once enabled, the same Advanced section shows the API Key and API Secret."
+    ],
+    "auth": {
+      "type": "signed-query",
+      "credentials": [
+        "apiKey",
+        "apiSecret"
+      ],
+      "envVars": [
+        "BDAPPS_SDK_API_KEY",
+        "BDAPPS_SDK_API_SECRET"
+      ],
+      "signature": "sha512(apiKey + '|' + requestTime + '|' + apiSecret), lower-case hex",
+      "note": "These are NOT the applicationId and password: the telco APIs reject the SDK pair, and the SDK rejects the telco pair."
+    },
+    "parameters": [
+      {
+        "name": "apiKey",
+        "type": "string",
+        "required": true,
+        "description": "The API Key from General → Advanced. Travels in the query string; the secret never does."
+      },
+      {
+        "name": "requestId",
+        "type": "string",
+        "required": true,
+        "description": "Your own unique id for this consent attempt. Persist it against the user's session BEFORE redirecting, and use it to match the return."
+      },
+      {
+        "name": "requestTime",
+        "type": "string",
+        "required": true,
+        "description": "Current UTC time, ISO-8601 with microseconds and a Z suffix (2026-08-25T09:41:22.481903Z). Part of the signature, so it must be the identical string in both places."
+      },
+      {
+        "name": "signature",
+        "type": "string",
+        "required": true,
+        "description": "sha512(apiKey|requestTime|apiSecret) as lower-case hex."
+      },
+      {
+        "name": "redirectUrl",
+        "type": "string",
+        "required": true,
+        "description": "Where bdapps returns the browser. HTTPS, and a URL you control — never built from user input."
+      }
+    ],
+    "rules": [
+      "Build the URL and compute the signature on the server. A signature computed in browser JavaScript puts the API Secret in the bundle.",
+      "Generate requestTime once into a variable and use that variable in both the signature and the query string. Formatting it twice looks like a wrong secret.",
+      "URL-encode every parameter — requestTime contains ':' and redirectUrl contains '://'.",
+      "On return, look requestId up in your own store, then confirm the subscription with POST /subscription/getStatus. Never trust the redirect alone.",
+      "Mark requestId consumed so a replayed return cannot activate anything twice.",
+      "Record the consent — timestamp, requestId and what the user was shown.",
+      "The SDK does not replace the subscription APIs. Unregister, status and base size are still the JSON endpoints."
+    ]
+  }
+}

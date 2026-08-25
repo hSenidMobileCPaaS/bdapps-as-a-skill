@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "bdapps",
+  "description": "bdapps telco integration skills for AI agents — SMS, USSD, Subscription, OTP, the Subscription Charging SDK, CaaS charging and bdappsAI.",
+  "owner": {
+    "name": "hSenid Mobile Solutions",
+    "url": "https://www.hsenidmobile.com"
+  },
+  "plugins": [
+    {
+      "name": "bdapps",
+      "description": "Build correct bdapps integrations. Exact API contracts, callback handlers, status-code handling, credential hygiene and go-live checks.",
+      "source": "./",
+      "category": "integrations"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+description = "Quick reference for the bdapps skill"
+prompt = "Show the bdapps skill quick reference from the bdapps-help skill: the available commands, the services covered, and which reference document covers what."

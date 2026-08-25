@@ -1,0 +1,64 @@
+{
+  "name": "bdapps-skill",
+  "version": "1.0.0",
+  "description": "Agent skill for building correct bdapps integrations — SMS, USSD, Subscription, OTP, the Subscription Charging SDK, CaaS charging and bdappsAI on Robi Axiata's Bangladeshi telco platform.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "keywords": [
+    "bdapps",
+    "robi",
+    "robi-axiata",
+    "bangladesh",
+    "telco",
+    "sms",
+    "ussd",
+    "subscription",
+    "otp",
+    "caas",
+    "direct-carrier-billing",
+    "bdappsai",
+    "agent-skills",
+    "ai-agents",
+    "claude-code",
+    "cursor-rules"
+  ],
+  "homepage": "https://github.com/hSenidMobileCPaaS/bdapps-as-a-skill",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hSenidMobileCPaaS/bdapps-as-a-skill.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hSenidMobileCPaaS/bdapps-as-a-skill/issues"
+  },
+  "bin": {
+    "bdapps": "./tools/bdapps.mjs"
+  },
+  "files": [
+    "SKILL.md",
+    "AGENTS.md",
+    "catalog/",
+    "references/",
+    "skills/",
+    "commands/",
+    "templates/",
+    "tools/",
+    "scripts/",
+    "assets/",
+    "LICENSE"
+  ],
+  "scripts": {
+    "bdapps": "node tools/bdapps.mjs",
+    "curl": "node tools/bdapps.mjs curl",
+    "test": "node --test tests/*.test.js",
+    "sync": "node scripts/sync-rules.mjs && node scripts/build-curl-reference.mjs",
+    "check": "node scripts/sync-rules.mjs --check && node scripts/build-curl-reference.mjs --check && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": {
+    "name": "hSenid Mobile Solutions",
+    "url": "https://www.hsenidmobile.com"
+  },
+  "private": true
+}

@@ -1,0 +1,2 @@
+description = "Diagnose a failing bdapps call or callback"
+prompt = "Diagnose this bdapps problem: {{args}}. Run `node tools/bdapps.mjs diagnose` with the symptom, and `node tools/bdapps.mjs code <statusCode>` if there is a code. Remember bdapps returns HTTP 200 for failures, so first confirm the code is reading statusCode at all. Give the most likely cause and the specific fix."

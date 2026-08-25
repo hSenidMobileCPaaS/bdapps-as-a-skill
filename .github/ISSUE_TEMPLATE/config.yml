@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: bdapps platform support
+    url: https://dev.bdapps.com
+    about: For account, provisioning, or platform questions, contact bdapps directly — support@bdapps.com or WhatsApp +8801878977505.
+  - name: Security issue
+    url: https://github.com/hSenidMobileCPaaS/bdapps-as-a-skill/blob/main/SECURITY.md
+    about: Do not open a public issue for anything involving a real credential.

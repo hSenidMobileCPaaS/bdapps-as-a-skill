@@ -1,0 +1,6 @@
+{
+  "name": "bdapps",
+  "version": "1.0.0",
+  "description": "Build correct bdapps integrations — SMS, USSD, Subscription, OTP, the Subscription Charging SDK, CaaS charging and bdappsAI on Robi Axiata's Bangladeshi telco platform.",
+  "contextFileName": "AGENTS.md"
+}

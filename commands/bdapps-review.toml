@@ -1,0 +1,2 @@
+description = "Review bdapps integration code for money, credential and compliance bugs"
+prompt = "Review this project's bdapps integration using the bdapps-review skill. Run `node tools/bdapps.mjs practices` and check every one against the code. Report findings with file:line, most severe first, each with the evidence and the specific fix. Finish with a plain verdict on whether this is safe to put in front of real subscribers."

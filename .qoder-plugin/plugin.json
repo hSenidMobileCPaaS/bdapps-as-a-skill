@@ -1,0 +1,7 @@
+{
+  "name": "bdapps",
+  "version": "1.0.0",
+  "description": "bdapps telco integration skills — SMS, USSD, Subscription, OTP, the Subscription Charging SDK, CaaS charging and bdappsAI.",
+  "skills": "./skills/",
+  "rules": "./.qoder/rules/"
+}

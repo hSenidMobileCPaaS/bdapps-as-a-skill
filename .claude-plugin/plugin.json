@@ -1,0 +1,24 @@
+{
+  "name": "bdapps",
+  "version": "1.0.0",
+  "description": "Build correct bdapps integrations — SMS, USSD, Subscription, OTP, the Subscription Charging SDK, CaaS charging and bdappsAI on Robi Axiata's Bangladeshi telco platform.",
+  "author": {
+    "name": "hSenid Mobile Solutions",
+    "url": "https://www.hsenidmobile.com"
+  },
+  "homepage": "https://github.com/hSenidMobileCPaaS/bdapps-as-a-skill",
+  "license": "UNLICENSED",
+  "keywords": [
+    "bdapps",
+    "robi",
+    "bangladesh",
+    "telco",
+    "sms",
+    "ussd",
+    "subscription",
+    "caas",
+    "bdappsai"
+  ],
+  "skills": "./skills/",
+  "commands": "./commands/"
+}

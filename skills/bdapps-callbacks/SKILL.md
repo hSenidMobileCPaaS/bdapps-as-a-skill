@@ -1,0 +1,63 @@
+---
+name: bdapps-callbacks
+description: Implement bdapps inbound webhooks — MO SMS receive, SMS delivery reports, USSD receive and subscription notifications. Use when building or debugging bdapps callback handlers, notification URLs, or webhook endpoints.
+---
+
+# bdapps callbacks
+
+bdapps POSTs to URLs you register during provisioning. Skip these and MO SMS never arrives,
+USSD does not work, and you never learn that a subscriber left or a charge failed.
+
+```bash
+node tools/bdapps.mjs list --direction=inbound            # all four
+node tools/bdapps.mjs show ussd-receive                   # payload + rules
+node tools/bdapps.mjs curl sms-mo                         # fields, plus a command that
+                                                            # replays it against your handler
+```
+
+All four are written out in `references/13-curl-reference.md`: what arrives, every field
+defined, what you must respond, the dedupe key, and a curl that replays the exact payload
+against your own route. Write the handlers from that, in the project's own framework.
+
+## The contract — identical for all four
+
+**In:** `POST`, JSON, containing your `applicationId`.
+**Out:** HTTP 200 with `{"statusCode":"S1000","statusDetail":"Success"}`.
+
+The response is an **acknowledgement, not a reply**. For USSD, the screen the user sees comes
+from a separate `POST /ussd/send`.
+
+## Five rules
+
+1. **Acknowledge first, work second.** Queue the payload, return `S1000`, process out of band —
+   through the stack's real background mechanism (a queue, `BackgroundTasks`, `@Async`, a worker
+   goroutine, a hosted service), never a bare `await`. USSD sessions time out in seconds.
+2. **Be idempotent.** Every callback can arrive twice. Dedupe on the documented key —
+   `node tools/bdapps.mjs show <id>` gives it.
+3. **Never trust the body.** Unauthenticated JSON from the internet. Validate the schema,
+   verify `applicationId`, restrict by bdapps source IP, rate-limit.
+4. **Always return 200**, even for payloads you reject — a 4xx/5xx just triggers redelivery.
+5. **Log for tracing, not surveillance.** `requestId`/`sessionId`/`externalTrxId` yes; message
+   bodies and unmasked `subscriberId` no.
+
+## Test without a bdapps account
+
+The payloads are fully specified, so post them yourself:
+
+```bash
+./scripts/test-callbacks.sh http://localhost:3000
+```
+
+It covers valid, malformed, wrong-app, missing-field, oversized **and duplicate** payloads —
+the duplicate test is the one people skip. It is plain curl, so it tests a handler written in
+any language.
+
+Every payload, field by field, with its replay command: `references/13-curl-reference.md`.
+
+Working handlers, in the language of the host project:
+`templates/typescript/callbacks-nextjs.ts` (Next.js), `templates/python/callbacks_fastapi.py`,
+`templates/java/BdappsCallbackController.java` (Spring), `templates/go/callbacks.go`,
+`templates/php/callbacks.php`, `templates/csharp/BdappsCallbacks.cs` (ASP.NET Core). For any
+other stack, the per-language acknowledge-first table is in `references/11-any-stack.md`.
+
+Full contract: `references/07-callbacks.md`.

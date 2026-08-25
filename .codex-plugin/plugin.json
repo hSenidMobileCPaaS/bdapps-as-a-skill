@@ -1,0 +1,44 @@
+{
+  "name": "bdapps",
+  "version": "1.0.0",
+  "description": "Build correct bdapps integrations — SMS, USSD, Subscription, OTP, the Subscription Charging SDK, CaaS charging and bdappsAI on Robi Axiata's Bangladeshi telco platform.",
+  "author": {
+    "name": "hSenid Mobile Solutions",
+    "url": "https://www.hsenidmobile.com"
+  },
+  "homepage": "https://github.com/hSenidMobileCPaaS/bdapps-as-a-skill",
+  "repository": "https://github.com/hSenidMobileCPaaS/bdapps-as-a-skill",
+  "license": "UNLICENSED",
+  "keywords": [
+    "bdapps",
+    "robi",
+    "bangladesh",
+    "telco",
+    "sms",
+    "ussd",
+    "caas",
+    "bdappsai"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "bdapps",
+    "shortDescription": "bdapps telco integration",
+    "longDescription": "Exact request/response contracts for every bdapps service, callback handler patterns, the full status-code table, credential hygiene and a go-live checklist.",
+    "category": "Integrations",
+    "capabilities": [
+      "Instructions",
+      "Skills",
+      "Commands"
+    ],
+    "websiteURL": "https://dev.bdapps.com",
+    "defaultPrompt": [
+      "Add bdapps SMS and subscription to this app.",
+      "Why is this bdapps call returning E1303?",
+      "Review my bdapps integration before go-live."
+    ],
+    "brandColor": "#E11D74",
+    "logo": "./assets/bdapps-logo.png",
+    "developerName": "hSenid Mobile Solutions",
+    "composerIcon": "./assets/bdapps-logo.png"
+  }
+}
