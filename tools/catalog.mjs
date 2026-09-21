@@ -74,7 +74,7 @@ export function lookupStatusCode(code) {
       code: key,
       known: false,
       class: isSuccess ? "success" : "unknown",
-      description: `Not in the published code list. Treat as ${isSuccess ? "success" : "a failure"} and check https://dev.bdapps.com/API_Documentation/bdapps_tap_api.html.`,
+      description: `Not in the published code list. Treat as ${isSuccess ? "success" : "a failure"}.`,
       retry: false,
       action: "Escalate to bdapps support with the requestId if it persists.",
       benignFor: [],
@@ -115,7 +115,7 @@ export function lookupBdappsAiError(code) {
       known: false,
       class: "unknown",
       description:
-        "Not in the published bdappsAI error list. Read error.code from the response body and check https://dev.bdapps.com/API_Documentation/bdapps_tap_api.html.",
+        "Not in the published bdappsAI error list. Read error.code from the response body.",
       retry: false,
       action: "Log the full error object and escalate through the bdappsAI portal if it persists.",
       affects: [],
@@ -456,6 +456,16 @@ export const SIGNATURES = [
     fix: "Check choices[0].finish_reason before using the content. Raise max_completion_tokens, or ask for a shorter answer in the prompt.",
   },
   {
+    when: /otp.*(every|each|per).*(sign|log)|(sign|log).?.?in.*otp|otp.*(mfa|2fa|multi.?factor|login code)/,
+    cause: "OTP Request is wired into the sign-in path. On bdapps the OTP flow activates a subscription — the PIN is the user's confirmation of it, with that subscription's charging behind it — so running it per sign-in attempts subscription charging every time and returns E1351 for users who are already subscribed.",
+    fix: "Bind the subscriberId to the account once, then issue your own session. At sign-in read the local subscription mirror, fall back to getStatus on the stored subscriberId only when the mirror is missing or doubted, and run OTP only for users who are not subscribed. Treat E1351 as 'already subscribed'. See references/04-subscription.md.",
+  },
+  {
+    when: /\btps\b|\btpd\b|throttl|too many (subscription|getstatus|status) (call|request)/,
+    cause: "A subscription call is sitting on a per-request path. getStatus takes one subscriberId per request, and Register and OTP Request are transactions, so a sign-in or page load that calls any of them exhausts the application's per-second and per-day allowance long before real traffic does.",
+    fix: "Serve entitlement from the local subscription mirror that the subscription notification keeps current, and move getStatus into a scheduled reconciliation sweep. Nothing on a sign-in or page-load path should call bdapps at all.",
+  },
+  {
     when: /callback|webhook|notification.*(not|never)|no.*(callback|webhook)/,
     cause: "Callback URL is not publicly reachable, is wrong in the portal, is behind a WAF challenge or auth middleware, or your handler is not returning HTTP 200 with S1000.",
     fix: "Verify the URL in the portal; confirm it is reachable over public HTTPS with a complete certificate chain; exempt it from CSRF and auth middleware, and restrict by bdapps source IP instead. Test locally with scripts/test-callbacks.sh.",
@@ -478,7 +488,7 @@ export const SIGNATURES = [
   {
     when: /double.?charg|charged twice|duplicate charge/,
     cause: "A debit was retried with a fresh externalTrxId after a timeout.",
-    fix: "Persist externalTrxId before the call and reuse it on every retry. E1379 means the original succeeded — treat it as success. Reconcile unknown outcomes against the charging notification.",
+    fix: "Persist externalTrxId before the call and reuse it on every retry. E1379 means the original succeeded — treat it as success. bdapps publishes no charging-notification callback, so an unknown outcome is resolved by re-calling direct debit with the SAME externalTrxId.",
   },
   {
     when: /certificate|tls|ssl|self.?signed|unable to verify/,

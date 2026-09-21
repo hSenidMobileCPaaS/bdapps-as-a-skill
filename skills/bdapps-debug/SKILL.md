@@ -32,6 +32,8 @@ most "mysterious" bdapps bugs are a clear error code that nothing was reading.
 | Callbacks never arrive | URL not publicly reachable, wrong in the portal, a WAF challenge, auth middleware in front, or the handler is not returning 200 with `S1000`. |
 | USSD dies mid-flow | Session store not shared across instances or workers (an in-process map, whatever the language), no `mt-fin`, or a handler too slow for the session timeout. |
 | Duplicate charges | A debit retried with a fresh `externalTrxId` after a timeout. |
+| Users get an SMS PIN, or `E1351`, every time they sign in | OTP Request is wired into the sign-in path. It activates a subscription, with charging behind it — it is not a login code. Bind once, then use your own session and the local subscription mirror (`references/04-subscription.md`). |
+| Subscription calls throttled, or TPS/TPD exhausted in normal traffic | `getStatus`, `subscription/send` or `otp/request` on a per-request path. `getStatus` takes one `subscriberId` per call; it belongs in a scheduled sweep. |
 | Works locally, fails deployed | The egress IP changed, or secrets are not set in the host environment. |
 | Certificate / TLS errors | Incomplete certificate chain — supply the intermediate CA, do **not** disable verification. |
 

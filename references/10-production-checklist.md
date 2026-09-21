@@ -44,6 +44,12 @@ provider something real.
 - [ ] USSD screens are plain ASCII and under ~160 characters
 - [ ] Explicit timeout on every outbound call
 - [ ] Retries only on transport errors and transient codes, with backoff and a cap
+- [ ] Sign-in and page loads make **no** bdapps call — the session is yours, entitlement comes
+      from the local subscription mirror
+- [ ] OTP Request runs only for users who are not already bound, never as a login code
+- [ ] `E1351` on OTP Request handled as "already subscribed", not as an error
+- [ ] `getStatus` appears only in a scheduled reconciliation sweep, the sign-in status check and
+      the Charging SDK return handler — never on a per-request path
 
 ## Callbacks
 
@@ -68,6 +74,8 @@ provider something real.
 - [ ] Amounts use a decimal type
 - [ ] Amount and currency sourced server-side, never from client input
 - [ ] Charged amount matches exactly what was disclosed before subscription
+- [ ] No charge is authorised by a session alone — every debit has its own disclosure, consent
+      record and `externalTrxId`
 - [ ] Balance query gated off unless "Enable Query Balance Requests" is provisioned
 - [ ] `paymentInstrumentName: "MobileAccount"` sent on every debit and balance query
 - [ ] Currency is `BDT` everywhere; no other currency is accepted
@@ -89,6 +97,8 @@ provider something real.
 - [ ] Explicit opt-in captured before every Register
 - [ ] Charge amount, currency and frequency disclosed before subscribing
 - [ ] Consent evidence stored: user, timestamp, channel, wording shown
+- [ ] The subscription mirror records when each row was last confirmed, and by what — the
+      notification or a sweep
 - [ ] Opt-out available in every channel the user can reach
 - [ ] `STOP` / `UNSUB` / `OFF` handled in MO SMS
 - [ ] Opt-out stops queued and scheduled messages, not just new ones

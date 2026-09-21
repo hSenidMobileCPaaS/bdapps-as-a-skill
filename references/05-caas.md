@@ -21,7 +21,7 @@ Currency is **BDT** and nothing else. Charging bands are Tk. 1–50 per transact
 
 ---
 
-## The five charging rules
+## The six charging rules
 
 1. **The amount must be pre-agreed and disclosed to the user before they subscribe.** bdapps
    requires a pre-defined specific amount, communicated in advance. Arbitrary or surprise
@@ -34,6 +34,12 @@ Currency is **BDT** and nothing else. Charging bands are Tk. 1–50 per transact
    USSD keypress is not authorisation on its own.
 5. **A charge must be traceable to a user action.** Log who, what, when, how much, which
    `externalTrxId`, and what the user saw before they agreed.
+6. **A live session is not authorisation to charge.** Signing in proves who the user is;
+   it does not agree to a payment. Every debit is its own act, with its own disclosure, its own
+   consent record and its own `externalTrxId` — whatever the user's session or an earlier OTP
+   says. Where the application is provisioned with end-user authentication for charging, the
+   subscriber confirms that debit by SMS or USSD, which is why `E1405` and `E1406` exist.
+   See [04-subscription.md §Identity and sessions](04-subscription.md#identity-and-sessions--subscribe-once-then-trust-your-own-session).
 
 ---
 

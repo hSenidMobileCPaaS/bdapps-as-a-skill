@@ -197,6 +197,14 @@ This is a compliance requirement, not a nicety — bdapps suspends applications 
 - **Never re-subscribe a user who opted out** without a fresh, separate opt-in.
 - **Never charge outside what the user agreed to.** Amount and currency come from server-side
   configuration or a server-side price lookup, never from client input.
+- **Consent is captured once, at the binding — not re-collected on every visit.** After the
+  opt-in completes, store the `subscriberId` on the account, issue your own session and answer
+  "may this user in?" from your local subscription mirror. Re-running Register, OTP or the
+  Charging SDK to identify a returning user is a subscription transaction each time: it charges,
+  it sends paid SMS, and it consumes the application's TPS/TPD allowance. See
+  [04-subscription.md §Identity and sessions](04-subscription.md#identity-and-sessions--subscribe-once-then-trust-your-own-session).
+- **Authentication is not authorisation to charge.** A live session says who the user is; each
+  debit still needs its own disclosure, its own consent record and its own `externalTrxId`.
 
 ---
 
@@ -212,6 +220,7 @@ This is a compliance requirement, not a nicety — bdapps suspends applications 
 | **Observability** | Log `requestId`, `sessionId`, `externalTrxId`, `statusCode` on every operation. These are what support traces with. |
 | **Alerting** | Page on configuration-class errors (`E1303`, `E1313`, `E1309`) — they mean the integration is fully down. |
 | **Broadcast guard** | `tel:all` requires a deliberate, separately-authorised code path. Never reachable by accident. |
+| **Entitlement checks** | Read the local subscription mirror. No bdapps call on a sign-in or a page load; `getStatus` belongs in a scheduled sweep, and it takes one subscriberId per call. |
 | **Money** | Decimal types, never binary floats. |
 | **Config** | Endpoint paths and base URLs in config, not scattered through code. |
 | **Secrets in AI tooling** | Never paste a real `password` into a prompt, an issue, or a shared notebook. Use the placeholder from `.env.example`. |

@@ -25,14 +25,17 @@ assumption is charged to a real person's phone bill.
    verification on.
 3. **Correctness** — branch on `statusCode`; `E1351`/`E1356`/`E1379` handled as success;
    `tel:` normalised in one helper; `destinationAddresses` an array; USSD `sessionId` echoed
-   and flows terminated with `mt-fin`; explicit timeouts.
+   and flows terminated with `mt-fin`; explicit timeouts; sign-in and page loads make no bdapps
+   call, with entitlement read from the local subscription mirror and `getStatus` confined to a
+   scheduled sweep, the sign-in check and the Charging SDK return.
 4. **Callbacks** — all four implemented, acknowledging before doing work, idempotent with a
    dedupe key, schema-validated, and tested with a duplicate payload.
 5. **Charging** — `externalTrxId` persisted before the call, retries reuse it, `E1406` never
    retried, timeouts resolved by reconciliation, decimal money, a reconciliation job.
 6. **Consent and compliance** — opt-in recorded with evidence, the charge disclosed before
    subscribing, opt-out available in every channel and honoured immediately including queued
-   messages, `tel:all` behind a deliberate path.
+   messages, `tel:all` behind a deliberate path, consent captured once at the binding rather
+   than re-collected on every visit, and no charge authorised by a session alone.
 7. **Privacy** — masking enabled where the real MSISDN is not needed, `subscriberId` masked in
    logs, message bodies not logged, retention defined and enforced.
 8. **Operations** — identifiers logged on every operation, alerting on configuration-class

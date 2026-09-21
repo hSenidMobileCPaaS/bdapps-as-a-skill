@@ -32,7 +32,15 @@ findings with `file:line`, most severe first. Do not report style opinions — o
 - Callback handler that trusts the body, or has no schema validation.
 - A callback returning non-200 on a malformed payload, which just triggers redelivery.
 - `tel:all` reachable from an ordinary code path.
-- Secrets, OTPs, `referenceNo` or unmasked `subscriberId` in logs.
+- Secrets, OTPs, `referenceNo` or unmasked `subscriberId` in logs — including the subscription
+  notification's raw body, which carries your `password`.
+- OTP Request called on every sign-in, or used as a generic login/MFA code, with no subscription
+  check first. Each request attempts subscription charging, even for users already subscribed.
+- A bdapps call on the sign-in or page-load path — `getStatus`, `subscription/send` or
+  `otp/request` used to identify a returning user instead of the project's own session and a
+  local subscription mirror.
+- A charge authorised by a session alone, with no per-payment disclosure, consent record or
+  fresh `externalTrxId`.
 
 ## Medium
 
@@ -42,7 +50,9 @@ findings with `file:line`, most severe first. Do not report style opinions — o
 - USSD flow ending in `mt-cont` instead of `mt-fin`.
 - An in-process USSD session store (`Map`, `dict`, `HashMap`, package-level `map`, `MemoryCache`)
   where more than one instance or worker runs.
-- `getStatus` polled per request instead of mirroring subscription notifications.
+- `getStatus` polled per request instead of mirroring subscription notifications, or a mirror
+  with no record of when each row was last confirmed.
+- `E1351` on OTP Request treated as a failure instead of "already subscribed".
 - Money held in a binary float (`number`, `float`, `double`) rather than a decimal type.
 - A new runtime or sidecar introduced purely to call bdapps from a non-JS project.
 - Amount or currency taken from client input.

@@ -110,8 +110,12 @@ Identical, with `action: "0"`:
 - **Registration may be `PENDING`, not `REGISTERED`.** If initial charging is involved the
   subscriber is not active yet. Do not start delivering the service on `PENDING`; wait for the
   subscription notification.
-- **Mirror subscription state in your own database.** Do not call `getStatus` on every request
-  — it is slow, rate-limited, and unnecessary if you consume notifications.
+- **Mirror subscription state in your own database**, with the time each row was last
+  confirmed and what confirmed it. Do not call `getStatus` on every request — it is slow, it
+  takes one subscriberId per call, and it is unnecessary if you consume notifications. The
+  mirror is also what answers "may this user in?" for a returning user, so that a sign-in makes
+  no bdapps call at all — see
+  [Identity and sessions](#identity-and-sessions--subscribe-once-then-trust-your-own-session).
 
 ---
 
@@ -153,8 +157,11 @@ Content-Type: application/json
 | `subscriptionStatus` | `REGISTERED` / `UNREGISTERED` / `PENDING` / `CHARGE` | Optional |
 | `statusCode` / `statusDetail` | Outcome | Mandatory |
 
-Use it for reconciliation (a nightly sweep, or when a user disputes their state) — not as a
-per-request gate.
+**One `subscriberId` per call** — the contract accepts a single value per request, so there is
+no batch form and no cheap way to check many users at once. Use it for reconciliation (a
+scheduled sweep, or when a user disputes their state) and at **sign-in**, when your local mirror
+is missing or you doubt it. Never as a per-request gate — see
+[Identity and sessions](#identity-and-sessions--subscribe-once-then-trust-your-own-session).
 
 ---
 
@@ -214,20 +221,22 @@ whenever a subscription changes — including changes you did not initiate (a us
 ```json
 {
   "applicationId": "APP_000375",
-  "frequency": "Monthly",
+  "password": "…",
+  "frequency": "monthly",
   "status": "REGISTERED",
   "subscriberId": "tel:8801812345678",
   "version": "1.0",
-  "timeStamp": "20130402025896"
+  "timeStamp": "20120113082110"
 }
 ```
 
 | Field | Meaning |
 |---|---|
 | `applicationId` | Your application ID |
+| `password` | **Your application password, echoed back by the platform.** Redact it before the payload reaches a log, an error tracker or a queue. Comparing it in constant time is reasonable defence in depth; it is not authentication on its own, because the request is unauthenticated JSON from the public internet. |
 | `status` | `REGISTERED` / `UNREGISTERED` |
 | `subscriberId` | Subscriber address, possibly masked |
-| `frequency` | Charging frequency for the subscription (e.g. `Monthly`) |
+| `frequency` | Charging frequency for the subscription — `daily` / `weekly` / `monthly` / `yearly` |
 | `timeStamp` | When it happened |
 | `version` | API version |
 
@@ -236,6 +245,90 @@ Respond `{"statusCode":"S1000","statusDetail":"Success"}`.
 **This callback is the authoritative source of subscription state.** Consuming it is what lets
 you keep a local mirror instead of polling `getStatus`. Handle it idempotently — duplicates
 happen. Full contract: [07-callbacks.md](07-callbacks.md).
+
+---
+
+## Identity and sessions — subscribe once, then trust your own session
+
+**This is the flow most integrations get wrong.** Register, OTP and the Subscription Charging
+SDK all end with proof that a user controls a mobile number, so they look like authentication.
+They are not authentication APIs — each one is a **subscription transaction**. Register can
+trigger the initial charge, `/otp/request` sends a real SMS that costs money, and the SDK sets
+up charging. Calling one of them to answer "who is this?" or "may this user in?" bills the
+subscriber, sends them PINs they did not ask for, burns the application's TPS/TPD allowance,
+and puts your sign-in path at the mercy of the platform's latency.
+
+What the subscription flow gives you is a **one-time verified binding**: this account owns this
+`subscriberId`, and this user consented, at this moment, to this charge. Establish it once.
+Everything after that is answered locally.
+
+### Two questions, two different sources
+
+| Question | Where the answer comes from | Never |
+|---|---|---|
+| **Who is this user?** | Your own session and auth — a cookie session, a JWT, Django sessions, Spring Security, a Laravel guard, whatever the project already has | A fresh `/otp/request` + `/otp/verify` on every sign-in |
+| **May they use the service right now?** | Your local subscription mirror, keyed by `subscriberId` | `POST /subscription/getStatus` on the request path |
+| **Has their state changed?** | The subscription notification callback, plus a scheduled reconciliation sweep | Polling per request or per page load |
+| **May I take this payment?** | A fresh CaaS debit, authorised per payment | Treating a live session — or an earlier OTP — as authorisation |
+
+### The flow
+
+```
+FIRST TIME ONLY — the binding
+  user opts in  (SMS keyword, USSD menu, OTP request + verify, or the Charging SDK page)
+    → record consent: who, when, channel, wording shown, amount and frequency disclosed
+    → subscriberId comes back (opaque — with masking it is a hash; store exactly as given)
+    → create or link the local account and store subscriberId on it
+    → mirror subscriptionStatus on that row, with the time it was confirmed
+    → ISSUE YOUR OWN SESSION. From here the user is logged in, by your system.
+
+EVERY REQUEST AFTER THAT — the entitlement check, zero bdapps calls
+  session → account → the mirrored subscriptionStatus
+    REGISTERED           → serve the service
+    PENDING / CHARGE     → "activation in progress"; wait for the notification,
+                           do not re-register and do not send another OTP
+    UNREGISTERED         → the re-subscribe screen, with a fresh opt-in and disclosure
+
+STATE CHANGES — out of band, never in the request path
+  subscription notification callback → update the mirror; this is the authority
+  scheduled sweep of getStatus (one subscriberId per call) → reconcile rows that
+                                   have gone stale, in a job, not in a handler
+```
+
+### Rules
+
+- **Nothing on the sign-in or page-load path calls bdapps.** If a user signing in causes an
+  outbound request to `developer.bdapps.com`, the design is wrong. Sign-in reads your session
+  store; entitlement reads your own database.
+- **Re-verify only on a genuine re-verification event** — a new device, a changed number, a
+  long-dormant account, or a step-up before something sensitive. That is what a fresh OTP is
+  for. Not every sign-in, and never every request.
+- **You need a `subscriberId` before you can ask anything.** With masking on, it is a hash you
+  can only receive from an OTP verify or a callback — a number the user has just typed is not
+  one. So for a masked application, "is this user already subscribed?" means "does this account
+  already have a stored `subscriberId` that the mirror says is `REGISTERED`?". An account with
+  no stored id goes through the opt-in flow.
+- **`E1351` on Register or OTP Request means the user is already subscribed**, not that
+  something failed. Treat it as success, repair the mirror, and let them in — do not send them
+  round the opt-in loop again.
+- **A live session is not permission to charge.** Authentication and authorisation of money are
+  separate: every payment is its own CaaS debit with its own `externalTrxId`, whatever the
+  user's session says. See [05-caas.md](05-caas.md).
+- **Store when the mirror was last confirmed, and by what** — the notification or a sweep. That
+  timestamp is what makes reconciliation targetable and support answerable.
+- **When the mirror is stale or a lookup fails, serve the last known good state** and reconcile
+  in the background. Never block a request on a live bdapps call, and never sign a user out
+  because a lookup failed.
+- **`subscriberId` is a join key, not a session token.** Keep it on the account row. Do not put
+  it in a cookie or a JWT claim the client can set — anyone who could set it would then be able
+  to act as that subscriber.
+- **Count the calls before you design a per-request check.** `getStatus` takes one subscriberId
+  per request, and one OTP per sign-in is one paid SMS per sign-in. Either one hits the
+  application's TPS and TPD limits long before your traffic does.
+
+Recipe E in [12-implementation-playbook.md](12-implementation-playbook.md#4-flow-recipes) writes
+this out as a sequence, and [07-callbacks.md](07-callbacks.md) is the contract for the
+notification that keeps the mirror honest.
 
 ---
 

@@ -344,8 +344,8 @@ deployment story.
 |---|---|
 | **SMS** | Send (MT), broadcast to base, receive (MO), delivery status reports |
 | **USSD** | Send screens, receive input, the `mo-init`/`mo-cont`/`mt-init`/`mt-cont`/`mt-fin` state machine |
-| **Subscription** | Register (opt-in), **unregister (opt-out)**, status, **query base size**, notifications |
-| **OTP** | Request, verify, masked-MSISDN handoff |
+| **Subscription** | Register (opt-in), **unregister (opt-out)**, status, **query base size**, notifications, and the **returning-user flow** — bind once, then your own session plus a local subscription mirror |
+| **OTP** | Request, verify, masked-MSISDN handoff — documented as the *subscription activation* channel it is, not a login code |
 | **Subscription Charging SDK** | The signed consent redirect, its own key pair, and how to handle the return safely |
 | **CaaS** | Direct debit, query balance, idempotency, reconciling an ambiguous charge |
 | **bdappsAI** | Chat completions on `claude-sonnet-4-6`, `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`, `gpt-5-nano` and `gpt-4o-mini`; image generation on `gpt-image-1.5`; the full error table; and the rules for putting a model call inside a telco flow |

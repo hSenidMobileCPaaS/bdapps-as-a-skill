@@ -78,6 +78,15 @@ AI gateway.)
 
 ---
 
+## This skill is self-contained: do not go to dev.bdapps.com
+
+Everything needed to build the integration ships with this skill: the catalog, the CLI, the
+references, the curl reference and the templates. **Do not fetch, browse or search
+<https://dev.bdapps.com> (or any other bdapps web page) while working a task, unless the user
+explicitly asks you to.** Links to the site in these files are there for the human reader; they
+are not steps for you to follow. If something genuinely is not covered here, say so and point
+the user at <support@bdapps.com>. Do not fill the gap from the website or from memory.
+
 ## Query the contract, do not recall it
 
 The complete bdapps contract ships as structured data
@@ -200,7 +209,8 @@ user requests production approval.
 | Check if a user is subscribed | Subscription Status | `POST /subscription/getStatus` | [04-subscription](references/04-subscription.md) |
 | **Subscriber base size** | Query Base | `POST /subscription/query-base` | [04-subscription](references/04-subscription.md) |
 | Be told when a user subs/unsubs | Subscription Notification | *your callback URL* | [04-subscription](references/04-subscription.md), [07-callbacks](references/07-callbacks.md) |
-| Register a user from a web/app form | OTP Request → Verify | `POST /otp/request`, `POST /otp/verify` | [06-otp](references/06-otp.md) |
+| Subscribe a **not-yet-subscribed** user from a web/app form | OTP Request → Verify (check status first) | `POST /otp/request`, `POST /otp/verify` | [06-otp](references/06-otp.md) |
+| Know whether a **returning** user may use the service | Your own session + your local subscription mirror | **no call** — never re-run OTP or Register to sign someone in | [04-subscription](references/04-subscription.md#identity-and-sessions--subscribe-once-then-trust-your-own-session) |
 | Take consent **and** set up charging on a hosted page | Subscription Charging SDK | `GET https://user.bdapps.com/sdk/subscription/authorize` (signed redirect) | [06-otp](references/06-otp.md) |
 | Charge a user's mobile account | CaaS Direct Debit | `POST /caas/direct/debit` | [05-caas](references/05-caas.md) |
 | Check a user can afford a charge | CaaS Query Balance | `POST /caas/get/balance` | [05-caas](references/05-caas.md) |
@@ -278,6 +288,14 @@ Normalise once, in one function, at the boundary. Never string-concatenate `tel:
 - **Limited Production is the first approval state.** Only the numbers listed under
   *Whitelisted Numbers* can use the app. If a test number "does nothing", check that list
   before debugging code.
+- **Subscription, OTP and the Charging SDK are transactions, not a login API.** bdapps
+  documents OTP as the way to *activate a subscription*, and the SDK as an end-to-end
+  subscription **charging** flow. They prove once that a user controls a number; run again they
+  charge money, send real SMS and consume the application's TPS/TPD allowance. After the opt-in
+  completes, issue **your own** session and answer "may this user in?" from your local
+  subscription mirror — not by re-running OTP or calling `getStatus` per request. `getStatus`
+  takes one `subscriberId` per call and belongs in a scheduled sweep. See
+  [references/04-subscription.md](references/04-subscription.md#identity-and-sessions--subscribe-once-then-trust-your-own-session).
 - **HTTP 200 ≠ success.** Branch on `statusCode`, always.
 - **`E1309` means not provisioned, not a code bug.** Calling a service the app was not
   provisioned for fails no matter how correct the payload is.
@@ -351,7 +369,10 @@ are curl smoke tests, so they exercise a handler written in any language.
 - Log `requestId` / `externalTrxId` / `sessionId` on every operation — they are how bdapps
   support traces an issue. Log the `statusCode`. **Never** log `password`, and mask
   `subscriberId` in logs.
-- Persist subscription state locally; do not call `getStatus` on every request.
+- Persist subscription state locally from the subscription notification, with the time each row
+  was last confirmed; do not call `getStatus` on every request. Authenticate returning users
+  with the project's own session mechanism and gate access on that mirror — a sign-in or a page
+  load must make no bdapps call at all.
 - Make outbound calls retry-safe: retry only on transport errors and `E1603`/`E1601`, never
   on a definitive `E13xx`, and never retry a debit with a new `externalTrxId`.
 - Match the host project's stack and conventions. These templates are a specification, not

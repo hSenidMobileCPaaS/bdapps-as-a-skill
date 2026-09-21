@@ -54,6 +54,15 @@ for TypeScript/Node, Python, Java, Go, PHP and C# as worked examples.
 
 ---
 
+## This skill is self-contained: do not go to dev.bdapps.com
+
+Everything needed to build the integration ships here — the catalog, the CLI, the references,
+the curl reference and the templates. **Do not fetch, browse or search <https://dev.bdapps.com>
+(or any other bdapps web page) while working a task, unless the user explicitly asks you to.**
+Links to the site in these files are for the human reader, not steps for you to follow. If
+something genuinely is not covered here, say so and point the user at <support@bdapps.com>
+rather than filling the gap from the website or from memory.
+
 ## Query the API catalog instead of guessing
 
 This repo ships the complete bdapps contract as structured data
@@ -116,7 +125,7 @@ to read — never a reason to add one of those runtimes to a project.
 | Account, provisioning, credentials, first call | [references/01-getting-started.md](references/01-getting-started.md) |
 | Send / receive SMS, delivery reports | [references/02-sms.md](references/02-sms.md) |
 | USSD sessions and menus | [references/03-ussd.md](references/03-ussd.md) |
-| Register, **unregister**, status, **base size** | [references/04-subscription.md](references/04-subscription.md) |
+| Register, **unregister**, status, **base size**, sessions and entitlement | [references/04-subscription.md](references/04-subscription.md) |
 | Charging: direct debit, balance query | [references/05-caas.md](references/05-caas.md) |
 | **OTP** and the **Subscription Charging SDK** — onboarding a user who starts on a screen | [references/06-otp.md](references/06-otp.md) |
 | Inbound webhooks | [references/07-callbacks.md](references/07-callbacks.md) |
@@ -157,7 +166,8 @@ platform. See [templates/.env.example](templates/.env.example).
 | Subscription status | `POST /subscription/getStatus` |
 | **Subscriber base size** | `POST /subscription/query-base` |
 | Subscription notification | *your callback URL* |
-| OTP request / verify | `POST /otp/request`, `POST /otp/verify` |
+| OTP request / verify (subscription activation) | `POST /otp/request`, `POST /otp/verify` |
+| Sign a **returning** user in / check entitlement | **no endpoint** — your own session plus the local subscription mirror |
 | Charge a mobile account | `POST /caas/direct/debit` |
 | Query balance (needs provisioning) | `POST /caas/get/balance` |
 | Consent + charging on a hosted page | `GET https://user.bdapps.com/sdk/subscription/authorize` (signed redirect) |
@@ -203,7 +213,15 @@ Normalise in one helper. Never concatenate `tel:` inline.
   `EnsureSuccessStatusCode()`, `http_errors`) — **bdapps returns 200 for errors.** Branch on
   `statusCode`.
 - ❌ `destinationAddresses: "tel:880…"` — it is always an **array**.
-- ❌ Treating `E1351` (already registered) as a failure on Register — it is success.
+- ❌ Using bdapps as a login API — an `/otp/request` per sign-in, a `/subscription/send` to
+  "check" a user, or a `getStatus` on the request path. These are **subscription
+  transactions**: bdapps documents OTP as the way to activate a subscription, and they charge,
+  send paid SMS and consume the application's TPS/TPD allowance every time. Bind the subscriber
+  once, then issue your own session and read entitlement from your local mirror.
+- ❌ Treating a live session as authorisation to charge — every payment is its own debit, with
+  its own disclosure and its own `externalTrxId`.
+- ❌ Treating `E1351` (already registered) as a failure on Register or OTP Request — it means the
+  user is already subscribed. Repair the mirror and let them in.
 - ❌ Treating `E1356` (not registered) as a failure on Unregister — it is success.
 - ❌ Treating `E1379` (already completed) as a failure on debit — it is success.
 - ❌ Retrying a debit with a new `externalTrxId` after a timeout — double charge.
@@ -220,7 +238,9 @@ Normalise in one helper. Never concatenate `tel:` inline.
   variable, or serving it through a client-facing config endpoint — that ships the password to
   the browser.
 - ❌ Standing up a Node sidecar (or any second runtime) to call bdapps from a non-JS project.
-- ❌ Logging `password`, the OTP, `referenceNo`, or an unmasked `subscriberId`.
+- ❌ Logging `password`, the OTP, `referenceNo`, or an unmasked `subscriberId` — note that the
+  subscription notification's body **contains your `password`**, so redact it before the payload
+  reaches a log, an error tracker or a queue.
 - ❌ Inventing endpoints bdapps does not publish — there is no LBS/location API and no voice/IVR
   API on this platform, and no charging-notification callback in the published contract. If a
   requirement needs one, say so rather than guessing a path.
@@ -250,7 +270,12 @@ Normalise in one helper. Never concatenate `tel:` inline.
 - Make callback handlers acknowledge first, validate the schema, verify `applicationId`, and
   deduplicate.
 - Log `requestId` / `sessionId` / `externalTrxId` / `statusCode`; mask subscriber addresses.
-- Mirror subscription state locally from notifications instead of polling `getStatus`.
+- Mirror subscription state locally from notifications instead of polling `getStatus`, and
+  record when each row was last confirmed. Authenticate returning users with the project's own
+  session mechanism and gate the service on that mirror: a sign-in and a page load make no
+  bdapps call. Reserve a fresh OTP for a real re-verification event — a new device, a changed
+  number, a step-up — and reconcile stale rows on a schedule with `getStatus` (one
+  `subscriberId` per call), out of the request path.
 - Use a decimal type for money — `BigDecimal`, `decimal.Decimal`, `decimal`, `bcmath`, a
   decimal library, or integer minor units. Never a binary float.
 - Match the host project's existing stack, structure and conventions.

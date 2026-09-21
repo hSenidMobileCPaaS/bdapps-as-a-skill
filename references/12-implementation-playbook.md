@@ -127,7 +127,7 @@ Users already depend on this application. The integration must land without dist
 
 ## 4. Flow recipes
 
-The four flows that cover almost every bdapps application. Each is a sequence of calls plus
+The five flows that cover almost every bdapps application. Each is a sequence of calls plus
 the state you must keep.
 
 ### A. Keyword opt-in over SMS
@@ -149,16 +149,37 @@ State to keep: subscription mirror keyed by `subscriberId`, consent record, dedu
 
 ### B. Web or app sign-up without SMS
 
+OTP here is the **subscription channel** — bdapps documents it as the way to activate a
+subscription, with that subscription's charging behind it. It is not a generic login code. Work
+out whether the user is already bound first, and send only users who are not subscribed through
+OTP:
+
 ```
+user signs up / signs in
+  → stored subscriberId for this account?
+      yes → mirror REGISTERED?  → in, no bdapps call
+            unsure             → getStatus(subscriberId)   (subscription-status)
+                                   REGISTERED       → in
+                                   PENDING / CHARGE → wait for the notification, no new OTP
+                                   UNREGISTERED     → OTP below
+      no  → OTP below
+OTP (not-yet-subscribed users only)
+  → disclose amount + frequency, record consent
 user types their number
   → requestOtp(subscriberId, metaData)   (otp-request) → referenceNo (server-side only)
+                                          E1351 → already subscribed: repair the mirror, let them in
 user types the PIN
   → verifyOtp(referenceNo, otp)          (otp-verify)  → masked subscriberId
-  → store the MASKED id; it is the identifier for every later call
+  → store the MASKED id on the account; it is the identifier for every later call
+  → issue YOUR OWN session — the next sign-in needs none of this
 ```
 
-Rate-limit per number **and** per IP before `requestOtp`, or the app is an SMS-bombing tool.
-OTPs last 60 minutes, three attempts.
+Requesting an OTP on every sign-in starts a subscription and its charging each time, even for
+users who are already subscribed. Never do it. If the product needs login MFA, build that
+separately. Rate-limit per number **and** per IP before `requestOtp`, or the app is an
+SMS-bombing tool. OTPs last 60 minutes, three attempts.
+
+State to keep: account → masked `subscriberId`, subscription mirror, consent record.
 
 ### B2. Web or app sign-up on the hosted consent page
 
@@ -215,7 +236,40 @@ timeout / no answer
 ```
 
 Money is a decimal type end to end. `queryBalance` is advisory only — handle `E1378` on the
-debit regardless of what it said.
+debit regardless of what it said. A live session is never authorisation to charge: every debit
+is its own disclosure, its own consent record and its own `externalTrxId`.
+
+### E. The returning user — your session, not another OTP
+
+Recipes A, B, B2 and C each end with a verified `subscriberId`. That is a **one-time binding**,
+not a login mechanism. Register, `/otp/request` and the Charging SDK are subscription
+transactions that cost money; re-running one to find out who a user is, or whether they may use
+the service, charges the subscriber, sends them PINs they did not ask for, and puts your
+sign-in path at the mercy of the platform.
+
+```
+once, at the end of A, B, B2 or C
+  → record consent, store subscriberId on the account
+  → mirror subscriptionStatus on that row + when it was last confirmed
+  → issue YOUR OWN session (cookie session, JWT, Django, Spring Security, a Laravel guard)
+
+every request afterwards — no bdapps call at all
+  session → account → mirrored subscriptionStatus
+      REGISTERED       → serve
+      PENDING / CHARGE → "activating"; wait for the notification, do not re-register
+      UNREGISTERED     → fresh opt-in, with disclosure
+
+keeping the mirror true — out of band
+  subscription notification callback → update it; this is the authoritative source
+  scheduled sweep (getStatus, one subscriberId per call) → reconcile drift, in a job
+```
+
+A fresh OTP belongs to a genuine re-verification event — a new device, a changed number, a
+dormant account, a step-up before something sensitive — not to every sign-in. Full rules:
+[04-subscription §Identity and sessions](04-subscription.md#identity-and-sessions--subscribe-once-then-trust-your-own-session).
+
+State to keep: account → `subscriberId`, subscription mirror with a last-confirmed timestamp,
+consent record, and your own session store.
 
 ---
 

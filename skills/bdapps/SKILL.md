@@ -62,6 +62,21 @@ language**.
 `S1000` is the only success. `E1351` on Register, `E1356` on Unregister and `E1379` on a
 debit retry all mean *the desired state already holds* — treat them as success.
 
+**Subscription, OTP and the Charging SDK are transactions, not a login API.** bdapps documents
+OTP as the way to *activate a subscription*, and the SDK as an end-to-end subscription
+**charging** flow. Bind the subscriber once, then issue **your own** session and answer "may this
+user in?" from a local subscription mirror fed by the subscription notification. At sign-in,
+check the mirror, then `getStatus` on the stored `subscriberId` if you are unsure, and run OTP
+only for users who are not subscribed — an OTP per sign-in attempts subscription charging every
+time, and `E1351` means the user is already subscribed. A live session is never authorisation to
+charge. See `references/04-subscription.md`.
+
+## Stay inside the skill
+
+Do not fetch, browse or search dev.bdapps.com (or any other bdapps web page) unless the user
+explicitly asks you to. This skill holds the full contract. If something is not covered here,
+say so and point the user at support@bdapps.com rather than filling the gap from memory.
+
 ## Build it in the project's own stack
 
 bdapps is JSON over HTTPS: no runtime is privileged, and a Node sidecar for a Python, Java,

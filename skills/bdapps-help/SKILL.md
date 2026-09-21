@@ -49,8 +49,10 @@ command for machine-readable output.
 
 **SMS** — send (MT), broadcast, receive (MO), delivery reports
 **USSD** — send screens, receive input, session handling
-**Subscription** — register, unregister, status, query base size, notifications
-**OTP** — request, verify
+**Subscription** — register, unregister, status, query base size, notifications, and the
+returning-user flow (bind once, then your own session plus a local subscription mirror)
+**OTP** — request, verify. It *activates a subscription*, with charging behind it — never a
+per-sign-in login code
 **Subscription Charging SDK** — the signed consent redirect to a bdapps-hosted page
 **CaaS** — direct debit, balance query, reconciling an ambiguous charge
 

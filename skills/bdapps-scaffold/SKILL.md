@@ -78,6 +78,28 @@ interchangeable — `references/06-otp.md` has both:
 
 Ask which one before building either; the SDK also needs support@bdapps.com to switch it on.
 
+Whichever you pick, it runs **once per user**. bdapps documents OTP as the way to activate a
+subscription and the SDK as an end-to-end subscription charging flow, so both are transactions
+with charging behind them.
+
+## 5c. Sessions and entitlement — scaffold these, or the integration becomes a login API
+
+The opt-in ends with a verified `subscriberId`. Bind it to the account and stop calling bdapps:
+
+- **A subscription mirror table** keyed by `subscriberId` — `subscriptionStatus`, when it was
+  last confirmed, and what confirmed it (the notification or a sweep). The subscription
+  notification handler writes it; it is the authoritative source.
+- **Your own session**, in whatever the project already uses. A sign-in and a page load must
+  make **no** bdapps call.
+- **A sign-in status check** that reads the mirror, and falls back to `getStatus` on the stored
+  `subscriberId` only when the mirror is missing or doubted. `E1351` on OTP Request means the
+  user is already subscribed — repair the mirror and let them in.
+- **A scheduled reconciliation job**, out of the request path, that sweeps stale rows with
+  `getStatus` (one `subscriberId` per call).
+
+Never scaffold an OTP request into a sign-in handler. `references/04-subscription.md` has the
+full flow and rules.
+
 ## 6. Verify
 
 ```bash

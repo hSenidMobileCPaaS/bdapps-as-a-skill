@@ -20,6 +20,13 @@ bdapps offers two ways to close that gap, and they are not interchangeable.
 **Pick one per surface, not both.** Two consent paths to the same subscription is two things to
 keep in step, and users who opted in through one and try to opt out through the other.
 
+**Both of them run once per user, not once per sign-in.** Each is a subscription transaction —
+bdapps documents OTP as the way to *activate a subscription*, and the SDK as an end-to-end
+subscription **charging** flow. They bind a verified `subscriberId` to an account; after that,
+your own session logs the user in and your own subscription mirror decides what they may use.
+The whole rule is in
+[04-subscription.md §Identity and sessions](04-subscription.md#identity-and-sessions--subscribe-once-then-trust-your-own-session).
+
 ---
 
 ## OTP — you collect the number, the platform SMSes a PIN
@@ -31,14 +38,65 @@ the platform SMSes a PIN, and on successful verification you receive the **maske
 
 Both endpoints are on the same host as every other bdapps API: `https://developer.bdapps.com`.
 
+### OTP here activates a subscription. It is not multi-factor authentication
+
+bdapps is explicit about what these two endpoints do: the PIN from `/otp/request` "must be
+entered by the subscriber into the mobile/web application to **activate a subscription**", and
+on `/otp/verify` "the **subscription process of bdapps will be activated**". It is the
+subscription channel for users who arrive on a screen, with the subscription's charging behind
+it — not a generic "send the user a login code" service.
+
+That means **calling OTP Request on every sign-in is a bug.** Each request starts a subscription
+and the charging that goes with it. For a user who is already subscribed that is at best a
+redundant paid SMS and an `E1351`; at worst it is another charge attempt against a real person.
+It is also the wrong tool for your own login security: if the product needs MFA, build that
+separately, with your own code generator and your own delivery.
+
+### Sign-in: check the subscription first, OTP only if the user is not subscribed
+
+When a returning user signs in, work out whether they are already bound **before** you reach for
+OTP:
+
+```
+user signs in
+  → stored subscriberId for this account?   (kept from an earlier OTP verify or callback)
+      yes → local subscription mirror says REGISTERED?
+              yes            → let them in. No bdapps call at all.
+              unsure / stale → getStatus(subscriberId)      (subscription-status)
+                                 REGISTERED       → let them in, refresh the mirror
+                                 PENDING / CHARGE → do not start OTP again; wait for the
+                                                    subscription notification
+                                 UNREGISTERED     → go to OTP (below)
+      no  → go to OTP (below)
+  OTP: disclose amount + frequency → record consent → otp-request → otp-verify
+       → store the masked subscriberId on the account → issue YOUR OWN session
+```
+
+- **The source of truth is your own mirror**, fed by subscription notifications. `getStatus`
+  confirms it when the mirror is missing or you doubt it. At most one call per sign-in; never
+  one per request.
+- **Treat `E1351` on OTP Request as "already subscribed"**, not as an error. It means the status
+  check was skipped or the mirror is stale. Repair the mirror and let the user in.
+- **Only send `PENDING` users back through OTP deliberately.** They have subscribed and charging
+  has not settled yet; a new OTP request does not help them and can start another charge
+  attempt.
+- **Unsubscribed users still give consent first.** Show the amount and the frequency, record the
+  consent, then request the OTP.
+
+Full rules, including what to do with a stale mirror:
+[04-subscription.md §Identity and sessions](04-subscription.md#identity-and-sessions--subscribe-once-then-trust-your-own-session).
+
 ### Flow
+
+For a user who is **not already subscribed** (see above):
 
 1. Collect the mobile number in your UI.
 2. `POST /otp/request` → platform SMSes a PIN.
 3. Store the returned `referenceNo` server-side against the user's session.
 4. Collect the PIN in your UI.
 5. `POST /otp/verify` with `referenceNo` + `otp`.
-6. Store the returned `subscriberId` — this is what you use for SMS, Subscription and Charging.
+6. Store the returned `subscriberId` — this is what you use for SMS, Subscription and Charging,
+   and issue your own session so the next sign-in needs none of this again.
 
 **Always call these from a backend with a static IP**, never from the browser or the app.
 
@@ -134,6 +192,9 @@ Errors:
 - **The `subscriberId` you get back is the masked identifier.** Store it as the user's
   identity for all later bdapps calls. Do not store the raw MSISDN the user typed unless you
   genuinely need it, and if you do, protect it as PII.
+- **Never request an OTP just to authenticate a user you have already bound.** Every OTP request
+  is a subscription attempt with charging behind it. Check the mirror, then `getStatus`, and
+  only then OTP.
 - Never log the OTP.
 
 ---
@@ -250,6 +311,9 @@ consented or not. Your handler must:
 3. **Mark the `requestId` consumed**, so a replayed return cannot activate anything twice.
 4. **Record the consent** — the timestamp, the `requestId`, and what the user was shown. This is
    the evidence that gets asked for when a subscriber disputes a charge.
+5. **Store the `subscriberId` on the account, mirror the status, and issue your own session.**
+   That is what makes this a one-time binding rather than a screen the user meets again on every
+   visit.
 
 A user who consents on the SDK page also reaches your `/subscription/notify` handler when the
 platform's notification fires. Both paths must converge on the same local state, which means the
@@ -274,6 +338,11 @@ handler must be idempotent — see [07-callbacks.md](07-callbacks.md).
 - **The SDK does not replace the subscription APIs.** Unregister, status and base size are still
   the endpoints in [04-subscription.md](04-subscription.md), and users still expect to be able
   to opt out by SMS.
+- **Redirect a user to the consent page once, not on every visit.** It sets up a subscription
+  and its charging; it is not a login screen. Once the return handler has confirmed the
+  subscription and stored the `subscriberId`, issue your own session and answer every later
+  request from your own mirror. A user who is already `REGISTERED` should never see the consent
+  page again unless they deliberately re-subscribe.
 
 ---
 

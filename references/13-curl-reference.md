@@ -383,6 +383,7 @@ HTTP 200. Success is `statusCode: "S1000"` — nothing else.
 - Only call with explicit, recorded consent. Disclose amount and frequency before registering.
 - E1351 (already registered) is success — the desired state already holds.
 - A PENDING result is not active yet; wait for the subscription notification before delivering the service.
+- This is a one-time binding, not a login call. After it succeeds, store the subscriberId on the account, issue your own session, and answer later requests from the local subscription mirror.
 
 ---
 
@@ -539,6 +540,8 @@ HTTP 200. Success is `statusCode: "S1000"` — nothing else.
 ### Rules
 
 - Use for reconciliation, not as a per-request gate — mirror state locally from the subscription notification instead.
+- One subscriberId per request: the contract accepts a single value, so there is no batch form and no cheap way to check many users at once.
+- Legitimate callers are a scheduled reconciliation sweep, the sign-in check when the mirror is missing or doubted, and the Charging SDK return handler. Never a sign-in or page load that the mirror could answer.
 
 ---
 
@@ -694,6 +697,9 @@ HTTP 200. Success is `statusCode: "S1000"` — nothing else.
 
 ### Rules
 
+- This activates a subscription; it is not multi-factor authentication. The PIN is how a web or app user confirms a subscription, with that subscription's charging behind it.
+- Never call it on every sign-in. Check the local subscription mirror first, then getStatus on the stored subscriberId, and run OTP only for users who are not subscribed.
+- E1351 means the user is already subscribed. Treat it as success, repair the mirror, and let them in.
 - Rate-limit per number AND per IP, or the app becomes an SMS-bombing tool at your expense.
 - One OTP is valid for 60 minutes.
 - Always call from a backend with a static IP.
@@ -777,6 +783,7 @@ HTTP 200. Success is `statusCode: "S1000"` — nothing else.
 - Maximum 3 attempts per OTP — enforce it on your side too.
 - Never log the OTP or the referenceNo.
 - Store the returned masked subscriberId as the user's bdapps identity.
+- On success, bind the subscriberId to the account and issue your own session. This is a one-time binding, not a login mechanism — every later request is answered from your local subscription mirror.
 
 ---
 
@@ -889,6 +896,7 @@ HTTP 200. Success is `statusCode: "S1000"` — nothing else.
 - Never retry with a fresh externalTrxId — a timeout does not mean the charge failed.
 - E1379 (already completed) is success. E1406 (user rejected) must never be retried.
 - Amount and currency come from server-side config, never from client input.
+- A live session is not authorisation to charge. Every debit has its own disclosure, its own consent record and its own externalTrxId, whatever the user's session or an earlier OTP says.
 
 ---
 

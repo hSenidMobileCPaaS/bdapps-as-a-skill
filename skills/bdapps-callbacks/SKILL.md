@@ -38,7 +38,13 @@ from a separate `POST /ussd/send`.
    verify `applicationId`, restrict by bdapps source IP, rate-limit.
 4. **Always return 200**, even for payloads you reject — a 4xx/5xx just triggers redelivery.
 5. **Log for tracing, not surveillance.** `requestId`/`sessionId`/`externalTrxId` yes; message
-   bodies and unmasked `subscriberId` no.
+   bodies and unmasked `subscriberId` no — and the subscription notification's body carries
+   your `password`, so redact it before the payload reaches a log, an error tracker or a queue.
+
+The subscription notification is also what keeps your local subscription mirror true, which is
+what lets a returning user be served without any bdapps call at all. Write the mirror (status,
+when it was last confirmed, and what confirmed it) from this handler:
+`references/04-subscription.md`.
 
 ## Test without a bdapps account
 
